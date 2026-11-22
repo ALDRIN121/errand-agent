@@ -53,3 +53,37 @@ distinction is what stops the loosening from becoming a substring match on "yes"
 cases, including four padded affirmatives that must pass and
 `"go ahead and book the cheaper one"` which must still fail. A looser classifier
 that reintroduces the substring bug fails that case.
+
+
+---
+
+## Bug 3 — the demo fixture put bookings in areas their provider does not serve
+
+**Observed.** `test_provider_area_matches_the_booking_area` failed immediately:
+`bk_1002` was recorded as an Indiranagar electrician booking against `prov_04`,
+which is a **Koramangala plumber**. Three of the five seeded bookings named
+providers that did not offer that service in that area at all.
+
+**Cause.** The fixture was written by hand and reasoned about in the abstract —
+"an electrician booking for Aldrin" — without cross-checking the provider table
+that the mock actually loads. Two independent tables describing the same world
+were allowed to drift, and nothing forced them to agree. The failure mode is worse
+than a red test: `list_bookings` would have returned a booking for a service the
+provider does not perform, in an area it does not cover, and the reschedule
+dialogue would have named a provider the search path could never surface.
+
+**Fix.** Every booking was rebound to a provider that genuinely serves its service
+in its area, and the demo users' areas were re-derived from those providers
+(Aldrin → Koramangala per his own correction in the prior conversation, Priya →
+HSR Layout, Rahul → Indiranagar). All dialogue prices are now looked up from
+`providers.json` rather than typed, and the dates are computed from the fixture's
+day offsets instead of being written by hand.
+
+**Regression tests.** `test_provider_area_matches_the_booking_area` (service and
+area must match the provider table), `test_dialogue_prices_match_the_provider_table`
+(every quoted price must exist in the table or be the documented price-shift
+delta), `test_dialogue_services_match_the_provider_they_name`, and
+`test_injection_flag_agrees_with_the_mock_determinism_rule`, which caught a second
+instance of the same drift: `prov_20` was flagged clean while `seed_index % 3 == 1`
+means the mock injects there. Four guards, because one cross-reference test would
+not have caught the other three.
