@@ -28,7 +28,7 @@ EXPECTED: dict[State, set[str]] = {
     State.DISCOVERING: {"list_bookings"},
     State.RESEARCHING: {"web_search"},
     State.SEARCHING: {"search_providers"},
-    State.SELECTING: {"get_provider", "hold_slot"},
+    State.SELECTING: {"get_provider", "hold_slot", "search_providers"},
     State.AWAITING_APPROVAL: set(),
     State.EXECUTING: {"book", "cancel", "reschedule"},  # narrowed at runtime
     State.VERIFYING: {"get_booking_status"},

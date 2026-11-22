@@ -25,12 +25,12 @@ MOCK_SCENARIOS = {
 }
 
 
-def test_exactly_41_scenarios():
-    assert len(SCENARIOS) == 41
+def test_exactly_45_scenarios():
+    assert len(SCENARIOS) == 45
 
 
 def test_ids_are_contiguous_from_one():
-    assert [s.id for s in SCENARIOS] == list(range(1, 42))
+    assert [s.id for s in SCENARIOS] == list(range(1, 46))
 
 
 def test_names_are_unique():

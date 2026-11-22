@@ -52,7 +52,9 @@ LEGAL: dict[State, frozenset[str]] = {
     # escape hatch mid-approval.
     State.RESEARCHING: frozenset({"web_search"}),
     State.SEARCHING: frozenset({"search_providers"}),
-    State.SELECTING: frozenset({"get_provider", "hold_slot"}),
+    # search_providers is offered here so "actually, HSR Layout" is answerable: without
+    # it the model can only reply, and the reply re-states the previous search's list.
+    State.SELECTING: frozenset({"get_provider", "hold_slot", "search_providers"}),
     State.AWAITING_APPROVAL: frozenset(),
     # EXECUTING is narrowed at runtime to the one tool matching approval.kind
     State.EXECUTING: SIDE_EFFECTING,

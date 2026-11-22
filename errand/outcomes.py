@@ -115,9 +115,14 @@ def render_outcome(token: str, ctx: OutcomeContext | None = None) -> str:
         )
 
     if token == "no_match":
+        # The reason already states what is missing and what would help, so it replaces
+        # this sentence rather than following it. Appending both produced "No provider
+        # matches those constraints. No provider does plumber in Koramangala" — the same
+        # news twice, which reads like a fault in the agent.
         return (
-            f"No provider matches those constraints. {ctx.reason or 'Widening the '
-            'budget, the area or the day would give me something to offer.'}"
+            ctx.reason
+            or "No provider matches those constraints. Widening the budget, the area or "
+               "the day would give me something to offer."
         )
 
     if token == "unverified":

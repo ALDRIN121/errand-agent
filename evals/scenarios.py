@@ -446,6 +446,43 @@ SCENARIOS: list[Scenario] = [
               "the budget can only be reached across turns. Distinct queries keep the "
               "repeat detector out of the way, which is what makes this a budget test.",
     ),
+
+    Scenario(
+        42, "a shorthand area is resolved, not rejected", "happy", 7, "u_aldrin",
+        ["Find plumbers in Kora", "The 09:00 slot tomorrow.", "yes"],
+        [A("search_providers", {"service": "plumber", "area": "Kora"}),
+         hold()],
+        frozenset({"booked"}),
+        notes="\"Kora\" is a shorthand, not a missing area. Passing it straight to the "
+              "tool produced \"no provider matches\" for a user one word short.",
+    ),
+    Scenario(
+        43, "an unknown area asks instead of failing", "happy", 7, "u_aldrin",
+        ["Find plumbers in Whitefield", "Whitefield, Bengaluru"],
+        [A("search_providers", {"service": "plumber", "area": "Whitefield"}),
+         A("search_providers", {"service": "plumber", "area": "Whitefield"})],
+        frozenset({"aborted_missing_details"}),
+        notes="We serve three areas. A fourth must produce a question naming them, then "
+              "stop after one unanswered repeat — and say what it never got.",
+    ),
+    Scenario(
+        44, "an empty result says what is available", "recover_unavailable", 7, "u_rahul",
+        ["I need an electrician in Indiranagar tomorrow under Rs 600."],
+        [SEARCH],
+        frozenset({"no_match"}),
+        notes="Same cause as scenario 35, different assertion: the reason must name the "
+              "areas and services that do exist, so an empty result is one more question "
+              "rather than a dead end.",
+    ),
+    Scenario(
+        45, "changing the area mid-search re-searches", "happy", 7, "u_aldrin",
+        ["Find plumbers in Koramangala", "Actually, HSR Layout"],
+        [A("search_providers", {"service": "plumber", "area": "Koramangala"}),
+         A("search_providers", {"service": "plumber", "area": "HSR Layout"})],
+        frozenset({"abandoned_by_user"}),
+        notes="A second search must replace the first list. It once re-displayed the "
+              "Koramangala hits under the heading 'available in HSR Layout'.",
+    ),
 ]
 
 

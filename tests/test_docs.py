@@ -24,7 +24,10 @@ def numbers():
 
 
 def test_the_code_counts_are_self_consistent(numbers):
-    assert numbers["scenarios"] == 41
+    # Derived: a hand-written copy of this number is what went stale three times.
+    from evals.scenarios import SCENARIOS
+
+    assert numbers["scenarios"] == len(SCENARIOS)
     assert numbers["invariants"] == 11
     # ten booking states plus RESEARCHING, the read-only web lookup
     assert numbers["states"] == 11

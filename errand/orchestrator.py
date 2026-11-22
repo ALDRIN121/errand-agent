@@ -41,7 +41,10 @@ TURN_BUDGET = 16
 TOOL_BUDGET = 20
 HOLD_TTL = timedelta(minutes=10)
 MAX_BOOK_ATTEMPTS = 2
-MAX_CLARIFY_TURNS = 4
+# Ask once, then stop. A second question with no answer behind it is the agent
+# interrogating a user who has already declined to elaborate; the honest move is to
+# leave with a sentence saying what is missing, not to keep asking.
+MAX_CLARIFY_TURNS = 1
 MAX_STEPS_PER_TURN = 6
 
 # Human-readable progress. Internal event names (`tool_refused`, `_dispatch`) are
@@ -117,6 +120,7 @@ class Orchestrator:
         self.hold: Hold | None = None
         self.pending: PendingAction | None = None
         self.candidates: list = []
+        self._last_question: str = ""     # the previous question, to spot a repeat
         self.last_choice: Any = None
         self.action_attribution: list[dict] = []
         # The last read result, so the next prompt can include it. Side-effect results
@@ -205,6 +209,7 @@ class Orchestrator:
                 sentence=self._sentence(),
             )
 
+        self._last_question = ""
         self.history.append("user", user_text, spans={})
         self.session.slots["last_user"] = user_text
         self.session.turns += 1
@@ -406,6 +411,7 @@ class Orchestrator:
             service = args.get("service")
             area = args.get("area")
             window = args.get("date_range")
+            # area was already resolved and validated before admission.
             if self.session.state is State.SELECTING and service and area:
                 # "same electrician as last time" resolves a provider, then searches
                 # their free slots: the target slots are known, so SELECTING -> SEARCHING
@@ -433,9 +439,15 @@ class Orchestrator:
                 self.session.slots.pop("reason", None)
                 self._transition(State.SEARCHING)
                 return self._dispatch(action)
-            # incomplete proposal: treat as a clarifying turn
+            # incomplete proposal: treat as a clarifying turn, and make it answerable
+            known = known_areas(self.server)
+            if not area:
+                options = ", ".join(known)
+                msg = (f"Which area did you mean? I serve {options}."
+                       if options else "Which area did you mean?")
+                return self._clarify(msg)
             missing = missing_slots(self.session.slots)
-            msg = action.message or f"Which of these is missing: {', '.join(missing)}?"
+            msg = action.message or self._ask_which(service=service, area=None)
             return self._clarify(msg)
 
         if name in ("hold_slot", "get_provider"):
@@ -446,18 +458,56 @@ class Orchestrator:
                 if self.session.state in (State.NEW, State.CLARIFYING, State.DISCOVERING):
                     self._transition(State.SELECTING)
                 return self._dispatch(action)
-            msg = action.message or "Which provider do you mean?"
+            msg = action.message or self._ask_which(
+                service=self.session.slots.get("service"),
+                area=self.session.slots.get("area"))
             return self._clarify(msg)
 
         # get_booking_status makes no sense before anything is in flight
-        msg = action.message or "I need the service and area before I can search."
+        known = known_areas(self.server)
+        msg = action.message or (
+            f"I need the service and area before I can search. I serve "
+            f"{', '.join(known)} for plumbers, electricians and AC service."
+            if known else "I need the service and area before I can search.")
         return self._clarify(msg)
 
-    def _clarify(self, msg: str) -> TurnResult:
-        self.session.clarify_turns += 1
-        if self.session.clarify_turns > MAX_CLARIFY_TURNS:
+    def _clarify(self, msg: str, *, repeat: bool = False) -> TurnResult:
+        """Ask the user something and make the question visible.
+
+        The question went only into history, so a watcher saw a turn end with no reply
+        and no explanation — the agent appeared to give up silently. It is a `clarify`
+        event for the same reason progress is: the trace is the record of what happened.
+        """
+        if self.session.clarify_turns >= MAX_CLARIFY_TURNS and not repeat:
+            # Already asked once this turn. Do not ask again: leave with a sentence.
+            missing = _plain_slots(missing_slots(self.session.slots))
             self.session.slots["reason"] = (
-                "I asked for the missing details and did not get them."
+                f"I asked once and did not get {missing or 'the details'} — say the word "
+                "and I will pick it straight up"
+            )
+            self._terminal("aborted_missing_details")
+            return self._result(None, None)
+        if self.tracer:
+            self.tracer.emit("clarify", text=msg, state=self.session.state.value)
+        # An unanswered question invalidates the *result* we had, not the *question* we
+        # were answering. The last tool result and candidates are dropped so they cannot
+        # be re-shown as though they answered the new question; the established slots are
+        # kept, because "which service?" must not be asked of a user who said "plumber"
+        # two turns ago.
+        self.last_tool_result = None
+        self.candidates = []
+        # One question per user turn, whatever the model does next. The counter is per
+        # turn, not per call: exempting repeats let a single turn ask five times in a row
+        # and still call it "one clarify".
+        if not repeat:
+            self.session.clarify_turns += 1
+        if self.session.clarify_turns > MAX_CLARIFY_TURNS:
+            # Say what was still missing. "Some details" is true and useless; the user
+            # is owed the name of the thing the agent gave up waiting for.
+            missing = _plain_slots(missing_slots(self.session.slots))
+            self.session.slots["reason"] = (
+                f"I asked once and did not get {missing or 'the details'} — say the word "
+                "and I will pick it straight up"
             )
             self._terminal("aborted_missing_details")
             return self._result(None, None)
@@ -465,6 +515,52 @@ class Orchestrator:
             self._transition(State.CLARIFYING)
         self.history.append("assistant", msg)
         return self._result(None, msg)
+
+    def _ask_which(self, *, service: str | None, area: str | None,
+                   what: str = "provider") -> str:
+        """Ask for a choice, and put the real choices in the question.
+
+        "Which provider do you mean?" is unanswerable unless the user already knows the
+        inventory — the question hands the work straight back. Every question this agent
+        asks names what it can offer, for the same reason an empty result does.
+        """
+        providers = list((getattr(self.server, "_providers", None) or {}).values())
+        rows = [p for p in providers
+                if (service is None or p.service == service)
+                and (area is None or p.area == area)]
+        rows.sort(key=lambda p: (-p.rating, p.price_paise, p.id))
+        if not rows:
+            elsewhere = self._elsewhere(area=area, service=service)
+            if elsewhere:
+                return (f"I have no {service or 'provider'} in {area or 'that area'} to "
+                        f"offer. I can offer {elsewhere}. Which would you like?")
+            return "Which area and service did you have in mind?"
+        lines = [f"{p.id}: {p.service.replace('_', ' ')} in {p.area}, rating {p.rating}, "
+                 f"Rs {p.price_paise // 100:,}" for p in rows[:5]]
+        options = "\n".join(lines)
+        return f"Which {what} did you mean? I have:\n{options}"
+
+    def _elsewhere(self, *, area: str | None, service: str | None) -> str:
+        """What the world does serve, phrased as an offer the user can act on.
+
+        Read from the provider table, not from a hand-written map: the point is to
+        describe the one world this run is actually against.
+        """
+        providers = list((getattr(self.server, "_providers", None) or {}).values())
+        if not providers:
+            return ""
+        by_area: dict[str, set[str]] = {}
+        for p in providers:
+            by_area.setdefault(p.area, set()).add(p.service)
+        lines = []
+        for other in sorted(by_area):
+            if area and other == area:
+                continue                    # they already know about this one
+            services = ", ".join(sorted(s.replace("_", " ") for s in by_area[other]))
+            lines.append(f"{other} ({services})")
+        if not lines:
+            return ""
+        return "; ".join(lines[:4])
 
     _PROGRESS_FOR = {
         "search_providers": "searching",
@@ -525,6 +621,24 @@ class Orchestrator:
         name = action.tool or ""
         assert action.tool is not None
 
+        # --- a search for an area we do not serve is answered here, before the state
+        # branches. In NEW the proposal is admitted as intent first, which persisted the
+        # bad area into slots and turned a one-word shorthand into a dead end.
+        if name == "search_providers" and action.args.get("area"):
+            known = known_areas(self.server)
+            resolved, candidates = resolve_area(action.args["area"], known)
+            if resolved is None:
+                options = ", ".join(candidates[:4])
+                msg = (f'I do not have an area called "{action.args["area"]}". '
+                       f"I serve {options}. Which one did you mean?"
+                       if options else "Which area did you mean?")
+                self._clarify(msg, repeat=(msg == self._last_question))
+                self._last_question = msg
+                return self._result(name, msg)
+            if resolved != action.args["area"]:
+                # Same action, spelled the way the provider table spells it.
+                action.args["area"] = resolved
+
         # --- a read-only lookup is a detour from wherever the user is. Handled before
         # the per-state logic because it must be reachable from NEW, SELECTING and the
         # restore path alike, and because it never touches slots.
@@ -540,11 +654,16 @@ class Orchestrator:
         # A search is legal from SELECTING too: after resolving a provider
         # ("the same electrician as last time") the next step is to look at their
         # slots, and a failed search retried with a wider area is the same move.
-        if name == "search_providers" and self.session.state is State.SELECTING:
+        # Retried from SEARCHING too: a user who names a different area mid-search is
+        # asking for another search, not for the previous answer again. Without this the
+        # old candidates were re-displayed under the new area name.
+        if name == "search_providers" and self.session.state in (
+                State.SELECTING, State.SEARCHING):
             if action.args.get("service") and action.args.get("area"):
                 self.session.slots.setdefault("service", action.args["service"])
                 self.session.slots.setdefault("area", action.args["area"])
-                self._transition(State.SEARCHING)
+                if self.session.state is State.SELECTING:
+                    self._transition(State.SEARCHING)
 
         # --- side-effecting tools are dispatched only through the approval store.
         # A model proposing one with nothing pending is asking to *start* an
@@ -669,10 +788,22 @@ class Orchestrator:
             return self._result(name, None)
 
         if name == "search_providers":
+            # Replace, never merge: the list belongs to the search that produced it, and
+            # a stale candidate offered under a new area is a wrong answer that looks
+            # authoritative.
             self.candidates = list(value)
+            self.last_choice = None
             if not self.candidates:
+                # An empty result must say what would not have been empty. "No provider
+                # matches" sends a user back to re-guess; the areas we do serve, and the
+                # services available in them, turn a dead end into one more question.
+                area = self.session.slots.get("area")
+                service = self.session.slots.get("service")
+                elsewhere = self._elsewhere(area=area, service=service)
                 self.session.slots["reason"] = (
-                    "No provider matches that service, area and window inside the budget."
+                    f"No provider does {service} in {area} right now."
+                    + (f" I can offer {elsewhere}." if elsewhere else
+                       " Widening the day or the budget would give me more to show.")
                 )
                 self._terminal("no_match")
                 return self._result(name, None)
@@ -1043,6 +1174,67 @@ class Orchestrator:
             sentence=sentence,
             refused=refused,
         )
+
+
+_SLOT_NAMES = {
+    "service": "the service",
+    "area": "the area",
+    "window_start": "the earliest time",
+    "window_end": "the latest time",
+}
+
+
+def _plain_slots(names: list[str]) -> str:
+    """Slot identifiers read as English. "window_start" is a name for a dict key, and a
+    user is owed a sentence rather than a schema."""
+    words = [_SLOT_NAMES.get(n, n.replace("_", " ")) for n in names]
+    if not words:
+        return ""
+    if len(words) == 1:
+        return words[0]
+    return ", ".join(words[:-1]) + " and " + words[-1]
+
+
+def known_areas(server) -> list[str]:
+    """The areas this world actually serves, derived from the providers.
+
+    Derived, not hand-written: a second copy of the map drifts, and this list is the
+    only thing that can tell "Kora" from a typo.
+    """
+    providers = getattr(server, "_providers", None) or {}
+    return sorted({p.area for p in providers.values()})
+
+
+def resolve_area(typed: str, known: list[str]) -> tuple[str | None, list[str]]:
+    """Match what a person typed against the areas we serve.
+
+    Returns (exact, candidates). `exact` is set only when the answer is not a guess:
+    a case-insensitive match, or a unique prefix. "Kora" is unambiguous; "K" is not,
+    and a wrong guess books a plumber in the wrong neighbourhood, which is worse than
+    asking. Guessing also cannot be undone by the user saying "no" — an approval built
+    on a guessed area would ask about a different booking than the one they wanted.
+
+    The vocabulary is a lookup of the areas the world serves, not language
+    understanding, in the same spirit as `_service_from`.
+    """
+    text = (typed or "").strip().lower()
+    if not text:
+        return None, known
+    for area in known:                        # exact, case-insensitive
+        if area.lower() == text:
+            return area, []
+    # A one- or two-letter prefix is not a word anyone types in earnest, and matching
+    # it would let "a" resolve to whichever area happens to start with it. Three is
+    # enough to distinguish real shorthands ("Kor", "HSR", "Ind") from noise.
+    prefixed = [a for a in known if len(text) >= 3 and a.lower().startswith(text)]
+    if len(prefixed) == 1:
+        return prefixed[0], []
+    # Substring matching needs the same floor: "k" is inside "Koramangala" and inside
+    # nothing else, which is a coincidence, not an intent.
+    contains = [a for a in known if len(text) >= 3 and text in a.lower()]
+    if len(contains) == 1:
+        return contains[0], []
+    return None, (prefixed or contains or known)
 
 
 SERVICE_WORDS = {
