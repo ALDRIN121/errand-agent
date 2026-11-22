@@ -101,6 +101,9 @@ class Orchestrator:
         self.candidates: list = []
         self.last_choice: Any = None
         self.action_attribution: list[dict] = []
+        # The last read result, so the next prompt can include it. Side-effect results
+        # are summarised to a confirmation, never the raw payload.
+        self.last_tool_result: str | None = None
 
     # ------------------------------------------------------------------ session
 
@@ -280,7 +283,7 @@ class Orchestrator:
             memory=self.memory,
             user_id=self.session.user_id,
             intent=user_text,
-            tool_result=None,
+            tool_result=self.last_tool_result,
             latest_user=user_text,
         )
         if self.tracer:
@@ -413,6 +416,10 @@ class Orchestrator:
             self._terminal("tool_failure")
             self.session.slots["reason"] = result.error.detail
             return self._result(name, None)
+        self.last_tool_result = _summarise(name, result.value)
+        if self.tracer:
+            self.tracer.emit("tool_result_summary", tool=name,
+                             chars=len(self.last_tool_result or ""))
         return self._after_tool(name, result.value)
 
     def _on_tool(self, action: Action) -> TurnResult:
@@ -895,6 +902,43 @@ SERVICE_WORDS = {
     "plumber": ("plumb", "tap", "leak", "pipe"),
     "electrician": ("electric", "wiring", "switchboard", "mcb", "socket"),
 }
+
+
+def _summarise(name: str, value: Any) -> str | None:
+    """A compact, model-readable rendering of a read result.
+
+    The context budget allows 500 tokens for a tool result, so the full search payload
+    cannot be replayed; the fields a choice needs are the id, the price, the rating and
+    the first free slot.
+    """
+    if value is None:
+        return None
+    if name == "search_providers":
+        rows = value.get("providers") if isinstance(value, dict) else value
+        if not rows:
+            return "No providers matched."
+        lines = []
+        for p in rows[:8]:
+            free = next((s for s in getattr(p, "slots", []) if s.available), None)
+            when = f"next free {free.start:%a %d %b %H:%M}" if free else "no free slot"
+            lines.append(f"- {p.id}: rating {p.rating}, Rs {p.price_paise // 100:,}, {when}")
+        return "Providers found:\n" + "\n".join(lines)
+    if name == "get_provider":
+        p = value
+        return (f"{p.id}: rating {p.rating}, Rs {p.price_paise // 100:,}, "
+                f"serves {p.service} in {p.area}")
+    if name == "list_bookings":
+        rows = value if isinstance(value, list) else value.get("bookings", [])
+        if not rows:
+            return "No bookings on record."
+        return "Bookings:\n" + "\n".join(
+            f"- {b.booking_id}: {b.service} with {b.provider_id} "
+            f"{b.slot.start:%a %d %b %H:%M} ({b.status})"
+            for b in rows[:8]
+        )
+    if name == "get_booking_status":
+        return f"status: {value.get('status')}, booking {value.get('booking_id')}"
+    return None
 
 
 MANAGE_VERBS = ("move", "cancel", "reschedule", "change", "shift", "postpone")

@@ -163,3 +163,41 @@ redaction.
 **Lesson.** The trace is the evidence base for eleven invariants. A bug in the trace
 writer does not fail a test; it makes tests pass for the wrong reason, or fail for a
 reason nobody can see. The instrumentation needs its own suite.
+
+
+---
+
+## Bug 7 — the real model was driving blind (three defects on the HTTP path)
+
+Everything below was invisible to the eval suite, because `ScriptedLLM` replays a
+queue and never reads the prompt. The suite was green while a real model could not
+have completed a single booking. Found by pointing `HttpLLMClient` at a local server
+and reading the system prompts it actually sent.
+
+1. **`state` was accepted and silently dropped.** `propose(prompt, state=...)` never
+   put the state in the request. Since the whole design is "the model chooses among
+   the tools legal in the current state", withholding the state left the model
+   guessing and made every I5 refusal the client's fault rather than the model's.
+2. **`tool_result` was hardcoded to `None`.** The search returned four providers and
+   the next prompt never contained them, so the model was asked to pick a provider it
+   had never been told about. The context assembler already rendered `tool_result`
+   correctly; nobody passed it.
+3. **`hold_slot` was not callable from JSON.** It declares `slot: Slot`, and the
+   gateway forwarded raw kwargs, so the only way to hold a slot was to construct a
+   Python object. The contract could not be exercised by a real client at all.
+
+**Fix.** The system prompt now carries the state and the tools available in it
+(`policy.proposable`, which is deliberately wider than dispatchable in `NEW` so a
+first-turn search can start); a `_summarise` projection feeds the last read result
+into the next prompt within the 500-token slice; `gateway._coerce` turns an ISO string
+or `{start, end}` dict into a `Slot` at the boundary, structurally refusing a bad
+value rather than raising.
+
+**Regression tests.** `tests/test_llm_http.py` — 26 tests against a real loopback
+`http.server`, plus `test_the_search_result_reaches_the_model_on_the_next_step` and
+the four coercion tests. The full pipeline is now demonstrated end to end over HTTP:
+search → results visible to the model → hold → approval → booked.
+
+**Lesson.** A scripted double that ignores its input cannot detect that its input is
+wrong. Any client whose contract is never exercised by the double needs a test against
+a real counterpart, or the suite is measuring the double.

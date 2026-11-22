@@ -18,7 +18,10 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from errand.policy import PolicyViolation, State, assert_tool_allowed
+from datetime import datetime
+
 from errand.tools.mock import MockToolServer
+from errand.types import Slot
 from errand.trace import Tracer
 from errand.types import ToolError
 
@@ -50,6 +53,40 @@ class CallResult:
     @property
     def ok(self) -> bool:
         return self.error is None
+
+
+def _parse_dt(value):
+    """Accept an ISO string, a datetime, or a dict carrying `start`/`end`."""
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        return datetime.fromisoformat(value)
+    return None
+
+
+def _coerce(name: str, args: dict) -> dict:
+    """Turn JSON-shaped values into the types the tool declares.
+
+    A model speaks JSON; `hold_slot` declares `slot: Slot`. Without this the only way
+    to hold a slot was to construct a Python object, which meant the contract could
+    not be exercised by a real client at all — the scripted suite hid it by handing in
+    the object directly.
+    """
+    if name != "hold_slot":
+        return args
+    raw = args.get("slot")
+    if isinstance(raw, Slot) or raw is None:
+        return args
+    if isinstance(raw, dict):
+        start = _parse_dt(raw.get("start"))
+        end = _parse_dt(raw.get("end") or raw.get("start"))
+        if start is None:
+            raise ToolError("validation", "slot.start must be an ISO timestamp")
+        return {**args, "slot": Slot(start=start, end=end or start)}
+    start = _parse_dt(raw)
+    if start is None:
+        raise ToolError("validation", f"slot must be a Slot or ISO timestamp, got {type(raw).__name__}")
+    return {**args, "slot": Slot(start=start, end=start)}
 
 
 @dataclass
@@ -94,6 +131,18 @@ class Gateway:
         unexpected = set(args) - allowed
         if unexpected:
             detail = f"unexpected argument(s) {sorted(unexpected)} for {name}"
+            self._trace("tool_refused", name=name, args=args, reason=detail, state=state)
+            return CallResult(name, args, error=ToolError("validation", detail))
+
+        # Coercion validates too, so a bad value is a structured refusal rather than an
+        # exception escaping the gateway: I9 says no traceback reaches the user.
+        try:
+            args = _coerce(name, args)
+        except ToolError as exc:
+            self._trace("tool_refused", name=name, args=args, reason=exc.detail, state=state)
+            return CallResult(name, args, error=exc)
+        except Exception as exc:  # malformed ISO string, wrong type, anything else
+            detail = f"could not interpret arguments for {name}: {exc}"
             self._trace("tool_refused", name=name, args=args, reason=detail, state=state)
             return CallResult(name, args, error=ToolError("validation", detail))
 

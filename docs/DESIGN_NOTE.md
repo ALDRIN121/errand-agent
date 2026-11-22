@@ -102,7 +102,21 @@ statement and leaves "a model drove this run" unevidenced.
 | Scenarios | 37 (37 pass) |
 | Invariants | 11 (100%) |
 | Runtime dependencies | 0 |
-| Source / test lines | 3,327 / 2,245 |
+| Source / test lines | 3,461 / 2,708 |
+
+## Where the scripted suite stops
+
+`ScriptedLLM` replays a queue and ignores its prompt. That makes the runtime
+properties provable — approval, idempotency, budgets, containment are all independent
+of who proposes the action — but it means a prompt-shaped defect is invisible to all
+37 scenarios. Three were: the state was not sent to the model, the last tool result
+was hardcoded to `None`, and `hold_slot`'s `slot` argument was not expressible as
+JSON.
+
+So `tests/test_llm_http.py` runs the client against a real loopback `http.server` and
+asserts on the bytes on the wire, and the full flow is demonstrated over HTTP:
+search → the model reads the results → hold → approval → booked. The scripted suite
+proves the *runtime*; the HTTP suite proves the *seam*.
 
 ## What I would do differently
 

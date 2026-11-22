@@ -116,6 +116,30 @@ def transition_allowed(src: State, dst: State) -> bool:
     return dst in TRANSITIONS[src]
 
 
+# What a model may *propose* in a state, which is not the same as what may be
+# dispatched. `NEW` dispatches nothing, but a proposal carrying service/area/date is
+# how the orchestrator's `_admit` leaves it for SEARCHING. Without this distinction the
+# prompt truthfully said "no tools" and a real model could only ask a question it did
+# not need to ask, burning a turn against MAX_CLARIFY_TURNS.
+PROPOSABLE: dict["State", frozenset[str]] = {
+    State.NEW: frozenset({"search_providers", "list_bookings", "get_provider"}),
+    State.CLARIFYING: frozenset({"search_providers", "list_bookings", "get_provider"}),
+}
+
+# hold_slot is only admitted when it names a provider; spelled out so the prompt can
+# say so rather than inviting a call that will be refused.
+PROPOSAL_NOTES: dict["State", str] = {
+    State.NEW: "you may propose search_providers with service, area and date_range "
+               "even though nothing is dispatched yet; that is how the search starts",
+    State.CLARIFYING: "propose search_providers with the details you now have",
+}
+
+
+def proposable(state: "State") -> frozenset[str]:
+    """Tools a model may propose here, dispatched or admissible."""
+    return PROPOSABLE.get(state) or legal_tools(state)
+
+
 def missing_slots(slots: dict) -> list[str]:
     """Required slots not yet established. Order is stable for deterministic tests."""
     required = ("service", "area", "window_start", "window_end")
