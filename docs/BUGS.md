@@ -201,3 +201,29 @@ search → results visible to the model → hold → approval → booked.
 **Lesson.** A scripted double that ignores its input cannot detect that its input is
 wrong. Any client whose contract is never exercised by the double needs a test against
 a real counterpart, or the suite is measuring the double.
+
+
+---
+
+## Bug 8 — the UI offered a live "Yes" for a booking that had already happened
+
+The CLI hid this: after a terminal outcome the process exits, so nobody sees the
+approval again. A long-lived surface does not get that mercy.
+
+`Orchestrator.pending` survives `_terminal` on purpose — `_after_verify` reads it
+afterwards to attribute the outcome, and clearing it there made a verified cancel get
+recorded as `book` (Bug 6, third item). The snapshot handed `pending` to the page
+unconditionally, so the Approval card kept a working **Yes** button on a completed
+booking. Clicking it would propose a side effect on a TERMINAL session.
+
+**Fix.** `snapshot()` clears `pending` when the session is terminal, with a comment
+naming why the field cannot be cleared at the source. The bug is fixed where the
+finished-ness is being applied, not where the state is stored.
+
+**Regression test.** `tests/test_ui.py::test_a_terminal_session_offers_no_approval`,
+plus `test_clearing_the_approval_does_not_break_outcome_attribution`, which asserts
+`_terminal` does *not* clear `pending` — the two tests together pin both halves of the
+tradeoff so a future "cleanup" cannot silently reintroduce the misattribution.
+
+**Lesson.** A fix that was correct for the CLI was wrong for a surface that stays open.
+The CLI's implicit `exit()` was doing work that nothing declared.

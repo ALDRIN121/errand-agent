@@ -114,6 +114,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--db", default=":memory:")
     parser.add_argument("--script", type=int, default=None,
                         help="replay scenario N's model actions (no credentials needed)")
+    parser.add_argument("--ui", action="store_true",
+                        help="serve a local web UI instead of the REPL")
+    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--open", action="store_true",
+                        help="open the UI in the default browser")
     args = parser.parse_args(argv)
 
     try:
@@ -121,6 +126,9 @@ def main(argv: list[str] | None = None) -> int:
     except SystemExit as exc:
         print(exc, file=sys.stderr)
         return 2
+
+    if args.ui:
+        return _serve_ui(args, orch, watcher, tracer)
 
     # an event raised while the process was down must still fire
     for body in watcher.tick():
@@ -151,6 +159,37 @@ def main(argv: list[str] | None = None) -> int:
         if tracer:
             tracer.close()
         db.close()
+    return 0
+
+
+def _serve_ui(args, orch, watcher, tracer) -> int:
+    """Hand the same world to the web server the REPL would have used."""
+    import webbrowser
+
+    from errand.ui import serve
+
+    label = os.environ.get("ERRAND_LLM_MODEL") or (
+        f"script {args.script}" if args.script is not None else "scripted"
+    )
+    httpd = serve(orch, watcher, trace_path=tracer.path if tracer else None,
+                  model_label=label, port=args.port)
+    host, port = httpd.server_address[:2]
+    url = f"http://{host}:{port}/"
+    print(f"errand agent UI on {url}  (model: {label}, Ctrl-C to stop)")
+    if args.open:
+        webbrowser.open(url)
+    try:
+        import time
+
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        print("\nstopping")
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        if tracer:
+            tracer.close()
     return 0
 
 
