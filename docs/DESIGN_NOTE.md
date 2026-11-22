@@ -102,7 +102,7 @@ statement and leaves "a model drove this run" unevidenced.
 | Scenarios | 37 (37 pass) |
 | Invariants | 11 (100%) |
 | Runtime dependencies | 0 |
-| Source / test lines | 3,461 / 2,708 |
+| Source / test lines | 3,557 / 2,709 |
 
 ## Where the scripted suite stops
 

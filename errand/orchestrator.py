@@ -104,6 +104,7 @@ class Orchestrator:
         # The last read result, so the next prompt can include it. Side-effect results
         # are summarised to a confirmation, never the raw payload.
         self.last_tool_result: str | None = None
+        self._attempted: set[str] = set()
 
     # ------------------------------------------------------------------ session
 
@@ -239,6 +240,7 @@ class Orchestrator:
         The step cap is the turn budget; a loop that hits it ends with a token.
         """
         last: TurnResult | None = None
+        seen: set[str] = set()
         for _ in range(MAX_STEPS_PER_TURN):
             if self.session.state in (State.AWAITING_APPROVAL, State.TERMINAL):
                 break
@@ -256,6 +258,7 @@ class Orchestrator:
                 break
             if last.refused is not None:
                 break
+
         if last is None:
             return self._result(None, None)
         return last
@@ -356,12 +359,22 @@ class Orchestrator:
                 self.session.slots.setdefault("area", area)
                 self._transition(State.SEARCHING)
                 return self._dispatch(action)
-            if service and area and window:
+            # date_range is optional in the contract (the mock defaults to the next 7
+            # days), so a proposal with service+area alone is a complete search. Demanding
+            # all three parked a real model in CLARIFYING indefinitely.
+            if service and area and window is not None:
+
                 self.session.slots.update(
                     service=service, area=area,
                     window_start=window.get("start") if isinstance(window, dict) else window,
                     window_end=window.get("end") if isinstance(window, dict) else window,
                 )
+                self.session.slots.pop("reason", None)
+                self._transition(State.SEARCHING)
+                return self._dispatch(action)
+            if service and area:
+                # no window given: search the default range
+                self.session.slots.update(service=service, area=area)
                 self.session.slots.pop("reason", None)
                 self._transition(State.SEARCHING)
                 return self._dispatch(action)
@@ -402,6 +415,21 @@ class Orchestrator:
         """Send an already-admitted action through the gateway."""
         name = action.tool or ""
         self._attribute(name, action.args)
+
+        # A model repeating the *same call with the same arguments* is stuck. Keyed on
+        # the arguments, not the tool name: inspecting two different providers is
+        # progress. This is what the tool budget exists to bound, but the budget is
+        # only checked at turn entry, so an intra-turn loop could never trip it and
+        # surfaced as a `tool_failure` that never happened.
+        fingerprint = json.dumps([name, action.args], sort_keys=True, default=str)
+        if fingerprint in self._attempted:
+            if self.tracer:
+                self.tracer.emit("loop_detected", tool=name,
+                                 state=self.session.state.value)
+            self._terminal("budget_tools")
+            self.session.slots["reason"] = f"repeated {name} with no change"
+            return self._result(name, None)
+        self._attempted.add(fingerprint)
         result = self.gateway.call(
             self.session.state, name, action.args,
             approval_kind=self.pending.kind if self.pending else None,
@@ -925,8 +953,15 @@ def _summarise(name: str, value: Any) -> str | None:
         return "Providers found:\n" + "\n".join(lines)
     if name == "get_provider":
         p = value
-        return (f"{p.id}: rating {p.rating}, Rs {p.price_paise // 100:,}, "
-                f"serves {p.service} in {p.area}")
+        free = [s for s in getattr(p, "slots", []) if s.available][:6]
+        lines = [f"{p.id}: rating {p.rating}, Rs {p.price_paise // 100:,}, "
+                 f"serves {p.service} in {p.area}"]
+        if free:
+            lines.append("free slots (pass start+end to hold_slot):")
+            lines += [f"- {s.start.isoformat()} to {s.end.isoformat()}" for s in free]
+        else:
+            lines.append("no free slots")
+        return "\n".join(lines)
     if name == "list_bookings":
         rows = value if isinstance(value, list) else value.get("bookings", [])
         if not rows:

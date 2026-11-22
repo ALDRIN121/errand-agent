@@ -150,6 +150,7 @@ def test_llm_transport_is_stdlib_only():
             modules.add(node.module.split(".")[0])
     third_party = {
         m for m in modules
-        if m not in ("__future__", "json", "urllib", "dataclasses", "typing", "errand")
+        if m not in ("__future__", "json", "urllib", "ssl", "pathlib", "dataclasses",
+                      "typing", "errand")
     }
     assert not third_party, f"llm.py imports {third_party}"
