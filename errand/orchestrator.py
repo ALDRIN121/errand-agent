@@ -44,6 +44,24 @@ MAX_BOOK_ATTEMPTS = 2
 MAX_CLARIFY_TURNS = 4
 MAX_STEPS_PER_TURN = 6
 
+# Human-readable progress. Internal event names (`tool_refused`, `_dispatch`) are
+# useless to a person watching the screen, and a UI that invents its own wording
+# drifts from the trace. One table, one place.
+PROGRESS: dict[str, str] = {
+    "thinking": "Thinking about what to do next",
+    "searching": "Searching our provider list",
+    "provider": "Looking at one provider in detail",
+    "holding": "Holding the slot",
+    "research": "Searching the web",
+    "research_done": "Read the results",
+    "approval": "Waiting for your approval",
+    "executing": "Carrying out the approved action",
+    "verifying": "Confirming with the provider",
+    "refused": "That action was not allowed here, so nothing happened",
+    "retry": "A transient error; retrying once",
+    "done": "Done",
+}
+
 
 @dataclass
 class TurnResult:
@@ -105,6 +123,10 @@ class Orchestrator:
         # are summarised to a confirmation, never the raw payload.
         self.last_tool_result: str | None = None
         self._attempted: set[str] = set()
+        # Search hits are held here and nowhere else: their single sink is the text
+        # shown to the user. They are never written to slots, arguments or memory.
+        self.search_hits: list = []
+        self._resume_state: State | None = None
 
     # ------------------------------------------------------------------ session
 
@@ -278,6 +300,18 @@ class Orchestrator:
 
     # ------------------------------------------------------------------ the model
 
+    def _progress(self, key: str, detail: str | None = None) -> None:
+        """Announce what the agent is doing, for a human watching.
+
+        Written to the trace as `progress` so the UI streams it from the same
+        append-only log it already reads, rather than a second channel that can
+        disagree with the evidence.
+        """
+        text = PROGRESS.get(key, key)
+        if self.tracer:
+            self.tracer.emit("progress", key=key, text=text, detail=detail,
+                             state=self.session.state.value)
+
     def _model_step(self, user_text: str) -> TurnResult:
         prompt, manifest = self.context.assemble(
             state=self.session.state,
@@ -295,6 +329,7 @@ class Orchestrator:
                              excluded=len(manifest.excluded),
                              state=self.session.state.value)
 
+        self._progress("thinking")
         try:
             action = self.llm.propose(self.context.render_text(prompt), state=self.session.state.value)
         except ScriptExhausted:
@@ -341,6 +376,13 @@ class Orchestrator:
             # the user still has to say yes. `book` with no hold has nothing to ask
             # about, so that one is refused.
             return self._open_approval(action)
+
+        if name == "web_search":
+            if not str(args.get("query") or "").strip():
+                msg = "What should I look up?"
+                self._clarify(msg)
+                return self._result(name, msg)
+            return self._open_research(action)
 
         if name == "list_bookings":
             if self.session.state is not State.DISCOVERING:
@@ -411,10 +453,24 @@ class Orchestrator:
         self.history.append("assistant", msg)
         return self._result(None, msg)
 
+    _PROGRESS_FOR = {
+        "search_providers": "searching",
+        "get_provider": "provider",
+        "hold_slot": "holding",
+        "web_search": "research",
+        "book": "executing",
+        "cancel": "executing",
+        "reschedule": "executing",
+        "get_booking_status": "verifying",
+        "list_bookings": "searching",
+    }
+
     def _dispatch(self, action: Action) -> TurnResult:
         """Send an already-admitted action through the gateway."""
         name = action.tool or ""
         self._attribute(name, action.args)
+        if key := self._PROGRESS_FOR.get(name):
+            self._progress(key, detail=name)
 
         # A model repeating the *same call with the same arguments* is stuck. Keyed on
         # the arguments, not the tool name: inspecting two different providers is
@@ -454,6 +510,12 @@ class Orchestrator:
         name = action.tool or ""
         assert action.tool is not None
 
+        # --- a read-only lookup is a detour from wherever the user is. Handled before
+        # the per-state logic because it must be reachable from NEW, SELECTING and the
+        # restore path alike, and because it never touches slots.
+        if name == "web_search" and self.session.state is not State.RESEARCHING:
+            return self._open_research(action)
+
         # --- NEW/CLARIFYING admit the model's structured proposal as its intent.
         # DISCOVERING is included because resolving a booking leaves the session there,
         # and the next legitimate step (holding the target slot) happens in SELECTING.
@@ -478,6 +540,46 @@ class Orchestrator:
             return self._execute_approved(action)
 
         return self._dispatch(action)
+
+    def _open_research(self, action: Action) -> TurnResult:
+        """Enter RESEARCHING, remembering where the user was.
+
+        A research detour must return to the booking flow it interrupted. The resume
+        state is recorded rather than inferred, because inferring it from slots is how
+        a "is this plumber any good?" question silently restarts the search.
+        """
+        if self.session.state is not State.RESEARCHING:
+            resume = self.session.state
+            # Returning to NEW would strand: NEW dispatches nothing, so the next turn
+            # could only ask a question it already answered.
+            self._resume_state = State.CLARIFYING if resume is State.NEW else resume
+            self._transition(State.RESEARCHING)
+        return self._dispatch(action)
+
+    def _after_research(self, value) -> TurnResult:
+        """Return to the interrupted flow, carrying the hits as display text."""
+        self.search_hits = list(value or [])
+        if self.search_hits:
+            shown = "\n".join(hit.display() for hit in self.search_hits[:5])
+            text = (
+                "Here is what the web says — these are external pages, not our "
+                "provider list, so treat them as claims rather than verified offers:\n"
+                + shown
+            )
+        else:
+            text = ("I searched but found nothing usable. That is a search result, "
+                    "not a booking problem.")
+        self.history.append("assistant", text)
+        if self.tracer:
+            self.tracer.emit("research_done", hits=len(self.search_hits),
+                             resume=(self._resume_state.value if self._resume_state else None))
+        # Back to whatever the user was doing. Never guessing: default to SELECTING
+        # when there are candidates, otherwise CLARIFYING so the agent asks.
+        target = self._resume_state or State.CLARIFYING
+        self._resume_state = None
+        if target is not State.RESEARCHING:
+            self._transition(target)
+        return self._result("web_search", text)
 
     def _open_approval(self, action: Action) -> TurnResult:
         """Start an approval for cancel/reschedule from a resolved booking.
@@ -565,6 +667,9 @@ class Orchestrator:
         if name == "get_provider":
             self.last_choice = value
             return self._result(name, None)
+
+        if name == "web_search":
+            return self._after_research(value)
 
         if name == "hold_slot":
             self.hold = value

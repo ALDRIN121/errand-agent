@@ -50,6 +50,40 @@ class Provider:
 
 
 @dataclass(frozen=True)
+class SearchHit:
+    """One web result. Untrusted by construction.
+
+    The whole point of the type is that `trust` cannot be anything but "untrusted",
+    so no code path can promote a search result into a slot, an argument or memory.
+    """
+    title: str
+    url: str
+    snippet: str
+    trust: Literal["untrusted"] = "untrusted"
+
+    def __post_init__(self) -> None:
+        # The type hint is documentation; this is the guarantee. A search result that
+        # could be constructed as trusted would put a web page on the same footing as
+        # our provider list.
+        if self.trust != "untrusted":
+            raise ValueError("a SearchHit is always untrusted")
+
+    def display(self) -> str:
+        """The one sink: text shown to the user."""
+        host = ""
+        try:
+            from urllib.parse import urlparse
+
+            host = urlparse(self.url).netloc.replace("www.", "")
+        except Exception:
+            pass
+        head = self.title.strip()
+        where = f" ({host})" if host else ""
+        body = self.snippet.strip()
+        return f"- {head}{where}" + (f"\n  {body}" if body else "")
+
+
+@dataclass(frozen=True)
 class Review:
     author: str
     rating: int

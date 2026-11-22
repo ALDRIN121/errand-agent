@@ -26,6 +26,7 @@ EXPECTED: dict[State, set[str]] = {
     State.NEW: set(),
     State.CLARIFYING: set(),
     State.DISCOVERING: {"list_bookings"},
+    State.RESEARCHING: {"web_search"},
     State.SEARCHING: {"search_providers"},
     State.SELECTING: {"get_provider", "hold_slot"},
     State.AWAITING_APPROVAL: set(),
@@ -36,10 +37,10 @@ EXPECTED: dict[State, set[str]] = {
 }
 
 
-def test_state_set_is_exactly_ten():
-    assert len(State) == 10
+def test_state_set_is_exactly_eleven():
+    assert len(State) == 11
     assert {s.name for s in State} == {
-        "NEW", "CLARIFYING", "DISCOVERING", "SEARCHING", "SELECTING",
+        "NEW", "CLARIFYING", "DISCOVERING", "RESEARCHING", "SEARCHING", "SELECTING",
         "AWAITING_APPROVAL", "EXECUTING", "VERIFYING", "PAUSED", "TERMINAL",
     }
 

@@ -67,6 +67,8 @@ def build_world(
     scenario: str = "happy",
     user_id: str = "u_aldrin",
     fixture: dict | None = None,
+    prior_conversation: bool = True,
+    web: object | None = None,
 ) -> DemoWorld:
     """Build a world with prior bookings, stored memories and a long history.
 
@@ -84,7 +86,7 @@ def build_world(
         db_path = Path(path)
 
     db = Database(db_path)
-    server = MockToolServer(clock=clock, seed=seed, scenario=scenario)
+    server = MockToolServer(clock=clock, seed=seed, scenario=scenario, web=web)
     history = History()
     memory = MemoryStore(db, clock, history=history)
 
@@ -154,7 +156,10 @@ def build_world(
         memory.infer(user_id, "probable_budget", "2500", "budget")
 
     # --- the long prior conversation, with spans so forgetting can redact it
-    convo = data.get("prior_conversation", {})
+    # The seeded 24-turn history makes the demo realistic — a returning customer — but
+    # it also means a bare "hi" continues a conversation that ended "let us start with
+    # the tap". Modern sessions can start empty when that confusion is not wanted.
+    convo = data.get("prior_conversation", {}) if prior_conversation else {}
     if convo.get("user_id") == user_id:
         for turn in convo.get("turns", []):
             spans = {}

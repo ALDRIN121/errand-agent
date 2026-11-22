@@ -298,3 +298,87 @@ def test_clearing_the_approval_does_not_break_outcome_attribution():
     assert "self.pending = None" not in body, (
         "_terminal must not clear pending: the verify path reads it afterwards"
     )
+
+
+# -------------------------------------------- the status line must actually be live
+
+
+def test_state_reads_do_not_queue_behind_a_running_turn(tmp_path):
+    """Bug: /api/state took the same lock as /api/turn.
+
+    A turn runs for the length of a model call, so the only endpoint that can say what
+    is happening was blocked exactly while something was happening.
+    """
+    import threading
+    import time
+
+    httpd, orch, watcher, trace, world = _ui(tmp_path)
+    try:
+        # hold the turn lock, as a long model call would
+        httpd.RequestHandlerClass.lock.acquire()
+        try:
+            started = time.monotonic()
+            body = _get(httpd, "/api/state")[0]     # must not block
+            elapsed = time.monotonic() - started
+            assert elapsed < 2.0, f"/api/state waited {elapsed:.1f}s behind the turn"
+            assert json.loads(body)["state"] == orch.session.state.value
+        finally:
+            httpd.RequestHandlerClass.lock.release()
+    finally:
+        httpd.shutdown(); httpd.server_close(); trace.close(); world.close()
+
+
+def test_a_turn_still_serialises_writes(tmp_path):
+    """Reads may be concurrent; two turns still must not interleave."""
+    httpd, orch, watcher, trace, world = _ui(tmp_path)
+    try:
+        results: list[int] = []
+        def fire(text):
+            status, _ = _post(httpd, "/api/turn", {"text": text})
+            results.append(status)
+        threads = [__import__("threading").Thread(target=fire, args=(f"hello {i}",))
+                   for i in range(3)]
+        for th in threads:
+            th.start()
+        for th in threads:
+            th.join(timeout=20)
+        assert all(status == 200 for status in results), results
+        assert orch.session.turns == 3
+    finally:
+        httpd.shutdown(); httpd.server_close(); trace.close(); world.close()
+
+
+def test_progress_is_exposed_from_the_trace(tmp_path):
+    """The page's status line is the trace's `progress` event, not a second channel."""
+    httpd, orch, watcher, trace, world = _ui(tmp_path)
+    try:
+        _post(httpd, "/api/turn", {"text": "Find a plumber in Koramangala this week"})
+        payload = json.loads(_get(httpd, "/api/state")[0])
+        assert payload["progress"] is not None, "no progress event reached the page"
+        assert payload["progress"]["text"], payload["progress"]
+        assert payload["progress"]["state"], payload["progress"]
+    finally:
+        httpd.shutdown(); httpd.server_close(); trace.close(); world.close()
+
+
+def test_polling_during_a_turn_returns_a_consistent_snapshot(tmp_path):
+    """Snapshot copies what it reads; a mid-turn poll must not raise."""
+    httpd, orch, watcher, trace, world = _ui(tmp_path)
+    try:
+        errors: list[str] = []
+        import threading, time
+        stop = threading.Event()
+        def poll():
+            while not stop.is_set():
+                try:
+                    json.loads(_get(httpd, "/api/state")[0])
+                except Exception as exc:      # noqa: BLE001 - the assertion is below
+                    errors.append(f"{type(exc).__name__}: {exc}")
+                time.sleep(0.05)
+        poller = threading.Thread(target=poll, daemon=True)
+        poller.start()
+        _post(httpd, "/api/turn", {"text": "Find a plumber in Koramangala this week"})
+        stop.set(); poller.join(timeout=5)
+        assert not errors, errors[:3]
+    finally:
+        httpd.shutdown(); httpd.server_close(); trace.close(); world.close()

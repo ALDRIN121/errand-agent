@@ -26,6 +26,7 @@ from errand.memory import MemoryStore
 from errand.orchestrator import Orchestrator
 from errand.outcomes import render_outcome
 from errand.tools.mock import MockToolServer
+from errand.tools.websearch import WebSearch
 from errand.trace import Tracer
 from errand.watcher import Watcher
 from evals.demo_data import ANCHOR, build_world
@@ -45,11 +46,18 @@ def build(args) -> tuple[Orchestrator, Watcher, Tracer | None, Database]:
     tracer = Tracer(trace_path) if trace_path else None
 
     clock = FakeClock(ANCHOR.replace(hour=8)) if args.seed is not None else RealClock()
+
+    # The search backend is real in both modes: it is read-only, costs nothing, and a
+    # model that cannot look anything up will invent an answer instead.
+    web = None if args.no_web else WebSearch(tracer=tracer)
+
     world = build_world(clock, seed=args.seed or 7, scenario=args.scenario,
-                        user_id=args.user) if args.seed is not None else None
+                        user_id=args.user,
+                        prior_conversation=not args.fresh,
+                        web=web) if args.seed is not None else None
     if world is None:
         db = Database(args.db or ":memory:")
-        server = MockToolServer(clock, seed=7, scenario=args.scenario)
+        server = MockToolServer(clock, seed=7, scenario=args.scenario, web=web)
         history = History()
         memory = MemoryStore(db, clock, history=history)
     else:
@@ -119,6 +127,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--open", action="store_true",
                         help="open the UI in the default browser")
+    parser.add_argument("--fresh", action="store_true",
+                        help="start with no prior conversation history (clean slate)")
+    parser.add_argument("--no-web", action="store_true",
+                        help="disable web_search (it is on by default, no key needed)")
     args = parser.parse_args(argv)
 
     try:

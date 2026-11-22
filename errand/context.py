@@ -81,11 +81,13 @@ class ContextAssembler:
         # --- memory: admission filter first, then rank, then fit the slice
         rows = memory.all_rows(user_id)
         candidates = memory.retrieve(user_id, intent, limit=10)
-        # A relevance floor: if anything actually matched the intent, do not spend
-        # the slice on rows that scored zero. "Only relevant, current preferences may
-        # reach the model" is not satisfied by sending a full page of unrelated facts.
-        if any(memory.score(m, intent) > 0 for m in candidates):
-            candidates = [m for m in candidates if memory.score(m, intent) > 0]
+        # A relevance floor, applied unconditionally. The earlier version only filtered
+        # when something matched, so an utterance that matched nothing — every greeting
+        # — received the entire memory page. With `last_plumber_provider: prov_06` and
+        # `preferred_area: Koramangala` in view, saying "hi" made the model believe a
+        # booking was wanted. Zero-score rows are dropped even when everything scores
+        # zero; an empty memory block is the honest context for "hi".
+        candidates = [m for m in candidates if memory.score(m, intent) > 0]
         used = SLICES["preamble"] + SLICES["tools"]
         mem_lines: list[str] = []
         mem_tokens = 0

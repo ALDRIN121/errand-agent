@@ -227,3 +227,57 @@ tradeoff so a future "cleanup" cannot silently reintroduce the misattribution.
 
 **Lesson.** A fix that was correct for the CLI was wrong for a surface that stays open.
 The CLI's implicit `exit()` was doing work that nothing declared.
+
+
+---
+
+## Bug 9 — an utterance that matched nothing received the entire memory page
+
+Found by saying "hi" in the live UI: the agent searched for a plumber, held a slot and
+asked for approval. Nothing about the greeting was understood as a booking request.
+
+`context.py` had a relevance floor that read:
+
+    if any(score(m) > 0 for m in candidates):     # only filter when something matched
+        candidates = [m for m in candidates if score(m) > 0]
+
+So when *nothing* scored — every greeting, every "thanks", every "ok" — the filter was
+skipped and all eight memories went to the model, including
+`last_plumber_provider: prov_06` and `preferred_area: Koramangala`. The model read a
+plumber and an area in its context and did the only sensible thing with them.
+
+**Fix.** The floor is unconditional. An utterance that matches nothing sends no memory;
+the honest context for "hi" is an empty memory block. Verified against the live model:
+"hi" now gets a greeting and a question, and a real request still receives
+`preferred_area`.
+
+**Compounding factor.** The demo world seeds a 24-turn prior conversation ending "let us
+start with the tap when you are ready". A bare "hi" continuing that thread is correct
+behaviour, but it reads as a malfunction when you are testing. `--fresh` (and
+`build_world(prior_conversation=False)`) now gives a genuinely empty session.
+
+**Lesson.** "Filter when relevant" is a different rule from "filter". The second is what
+the requirement said, and the first passes every test written by someone who types a
+real request.
+
+---
+
+## Bug 10 — the "live" status line could not be live
+
+The status line was added so a person could see what the agent was doing. It showed
+nothing during the turn, because `/api/state` took the same lock the turn holds for its
+whole duration. A turn is twenty seconds of model latency; the only endpoint that could
+explain the wait was blocked by the wait.
+
+**Fix.** Reads no longer take the turn lock. `snapshot()` copies what it reads — slots
+dict copied, memory list copied, state read once — so a poll landing mid-mutation gets a
+consistent view instead of a "dictionary changed size during iteration". Writes still
+serialise, which is the property that matters: two turns must not interleave.
+
+**Tests.** `test_state_reads_do_not_queue_behind_a_running_turn` (holds the lock, asserts
+the read returns in under 2s), `test_a_turn_still_serialises_writes`, and
+`test_polling_during_a_turn_returns_a_consistent_snapshot`, which polls every 50ms while
+a turn runs and asserts no poll raises.
+
+**Lesson.** Locking for correctness and locking for liveness are different decisions. The
+first version was correct and unobservable.

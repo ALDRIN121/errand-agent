@@ -31,7 +31,7 @@ def _signatures(server: MockToolServer) -> dict[str, set[str]]:
     out: dict[str, set[str]] = {}
     for name in (
         "search_providers", "get_provider", "hold_slot", "book",
-        "get_booking_status", "cancel", "reschedule", "list_bookings",
+        "get_booking_status", "cancel", "reschedule", "list_bookings", "web_search",
     ):
         fn = getattr(server, name)
         params = inspect.signature(fn).parameters

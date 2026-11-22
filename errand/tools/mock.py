@@ -48,12 +48,14 @@ CONFLICT_HOURS = {9, 14}
 class MockToolServer:
     """In-process mock of the eight provider tools."""
 
-    def __init__(self, clock: Clock, seed: int = 7, scenario: str = "happy") -> None:
+    def __init__(self, clock: Clock, seed: int = 7, scenario: str = "happy",
+                 web: object | None = None) -> None:
         if scenario not in SCENARIOS:
             raise ValueError(f"unknown scenario {scenario!r}")
         self.clock = clock
         self.seed = seed
         self.scenario = scenario
+        self.web = web
         self._rng = random.Random(seed)
 
         self._providers: dict[str, Provider] = {}
@@ -305,6 +307,32 @@ class MockToolServer:
         booking.slot = slot
         self._record("reschedule", args, booking)
         return booking
+
+    def web_search(self, query: str) -> list:
+        """Forward to the injected search backend.
+
+        Read-only and contained: the results are `SearchHit` values whose only sink is
+        the text rendered to the user. No configuration means a typed refusal, because
+        a search that returns [] for "not set up" is indistinguishable from "the web
+        has nothing to say" — and one of those is a lie.
+        """
+        args = {"query": query}
+        if not str(query or "").strip():
+            self._record("web_search", args, error="validation")
+            raise ToolError("validation", "query is required")
+        if self.web is None:
+            self._record("web_search", args, error="unavailable")
+            raise ToolError("unavailable", "no search backend configured")
+        try:
+            hits = self.web.search(query)  # type: ignore[attr-defined]
+        except ToolError as exc:
+            self._record("web_search", args, error=exc.error_class)
+            raise
+        except Exception as exc:  # the normalising boundary
+            self._record("web_search", args, error="unexpected")
+            raise ToolError("unexpected", f"{type(exc).__name__}: {exc}") from exc
+        self._record("web_search", args, hits)
+        return hits
 
     def list_bookings(self, user_id: str) -> list[Booking]:
         args = {"user_id": user_id}

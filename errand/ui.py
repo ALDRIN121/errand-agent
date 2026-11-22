@@ -36,9 +36,14 @@ def snapshot(orch: Orchestrator, watcher: Watcher, trace_path: Path | None) -> d
 
     Deliberately boring: each field is a real attribute, not a derived guess.
     """
-    memory_rows = orch.memory.admissible(orch.session.user_id)
+    # Copied, not referenced: a turn may be mutating these while the page polls, and a
+    # "dictionary changed size during iteration" would take the status line down exactly
+    # when it is needed.
+    memory_rows = list(orch.memory.admissible(orch.session.user_id))
     pending = orch.pending
-    terminal = orch.session.state.value == "TERMINAL"
+    slots = dict(orch.session.slots or {})
+    state_value = orch.session.state.value
+    terminal = state_value == "TERMINAL"
     # A terminal session has nothing left to approve. `orch.pending` deliberately
     # survives `_terminal` — the trace path reads it to attribute the outcome — so the
     # finished-ness must be applied here. Without this the UI kept offering a live
@@ -46,7 +51,7 @@ def snapshot(orch: Orchestrator, watcher: Watcher, trace_path: Path | None) -> d
     if terminal:
         pending = None
     return {
-        "state": orch.session.state.value,
+        "state": state_value,
         "terminal": terminal,
         "outcome": orch.session.outcome,
         "outcome_verb": orch.session.outcome_verb,
@@ -55,7 +60,7 @@ def snapshot(orch: Orchestrator, watcher: Watcher, trace_path: Path | None) -> d
         "tool_calls": orch.session.tool_calls,
         "clarify_turns": orch.session.clarify_turns,
         "budgets": {"turns": 16, "tools": 20, "clarify": 4},
-        "slots": _jsonable(orch.session.slots),
+        "slots": _jsonable(slots),
         # A terminal session has nothing left to approve. `orch.pending` deliberately
         # survives _terminal (the trace path reads it to attribute the outcome), so the
         # UI is where the finished-ness must be applied.
@@ -77,6 +82,13 @@ def snapshot(orch: Orchestrator, watcher: Watcher, trace_path: Path | None) -> d
         ],
         "events": _events(trace_path),
         "last_tool_result": orch.last_tool_result,
+        # The most recent human-readable progress line, so the page can say what is
+        # happening instead of leaving a spinner with no explanation.
+        "progress": _last_progress(trace_path),
+        "search_hits": [
+            {"title": h.title, "url": h.url, "snippet": h.snippet}
+            for h in getattr(orch, "search_hits", [])[:5]
+        ],
     }
 
 
@@ -108,6 +120,10 @@ _LABELS = {
     "tool_refused": "tool refused",
     "tool_error": "tool failed",
     "tool_result_summary": "result summarised",
+    "progress": "progress",
+    "web_search": "web search",
+    "research_done": "research returned",
+    "loop_detected": "loop stopped",
     "approval_opened": "approval raised",
     "approval_validated": "approval checked",
     "side_effect_ok": "side effect",
@@ -134,6 +150,17 @@ def _events(trace_path: Path | None, limit: int = 400) -> list[dict]:
             "detail": _detail(kind, row),
         })
     return out
+
+
+def _last_progress(trace_path: Path | None) -> dict | None:
+    """The newest `progress` event, or None. Read from the trace, not a side channel."""
+    if not trace_path:
+        return None
+    for row in reversed(read_trace(trace_path)[-80:]):
+        if row.get("type") == "progress":
+            return {"key": row.get("key"), "text": row.get("text"),
+                    "state": row.get("state")}
+    return None
 
 
 def _detail(kind: str, row: dict) -> str:
@@ -220,6 +247,18 @@ PAGE = r"""<!doctype html>
   .empty{color:var(--dim);font:12px var(--mono)}
   .approve{display:flex;gap:9px;margin-top:9px}
   .approve button{flex:1;padding:9px}
+  #status{display:flex;align-items:center;gap:9px;padding:8px 18px;
+          font:12px/1.4 var(--mono);color:var(--dim);min-height:34px;
+          border-top:1px solid var(--line);background:var(--panel)}
+  #status .dot{width:7px;height:7px;border-radius:50%;background:var(--dim);flex:none}
+  #status.busy .dot{background:var(--accent);animation:pulse 1.1s ease-in-out infinite}
+  #status.ok .dot{background:var(--ok)}
+  #status.bad .dot{background:var(--bad)}
+  @keyframes pulse{0%,100%{opacity:.35;transform:scale(.85)}50%{opacity:1;transform:scale(1.15)}}
+  .hit{padding:7px 0;border-bottom:1px solid rgba(128,128,128,.1);font:12px/1.45 var(--mono)}
+  .hit a{color:var(--accent);text-decoration:none;word-break:break-all}
+  .hit a:hover{text-decoration:underline}
+  .hit .sn{color:var(--dim);display:block;margin-top:3px}
 </style>
 </head>
 <body>
@@ -235,6 +274,7 @@ PAGE = r"""<!doctype html>
 <div class="wrap">
   <section class="chat">
     <div id="log"></div>
+    <div id="status"><span class="dot"></span><span id="status-text">ready</span></div>
     <form id="say" autocomplete="off">
       <input id="text" type="text" placeholder="Find a plumber in Koramangala this week, mornings, under Rs 1500" autofocus>
       <button class="primary" id="send">Send</button>
@@ -257,6 +297,12 @@ PAGE = r"""<!doctype html>
       <div class="bar"><i id="bar-clar" style="width:0"></i></div>
     </div>
 
+    <div class="card" id="research-card" style="display:none">
+      <h2>Web results <span style="font-weight:400;text-transform:none;
+          letter-spacing:0;color:var(--warn)">untrusted</span></h2>
+      <div id="research"></div>
+    </div>
+
     <div class="card">
       <h2>Slots</h2>
       <div id="slots"><span class="empty">nothing established</span></div>
@@ -276,7 +322,7 @@ PAGE = r"""<!doctype html>
 
 <script>
 const $ = id => document.getElementById(id);
-let seenEvents = 0, model = "—";
+let seenEvents = 0, model = "—", busy = false;
 
 function esc(s){const d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML;}
 
@@ -342,6 +388,38 @@ function render(s){
     ap.innerHTML = '<span class="empty">nothing pending</span>';
   }
 
+  // live progress: say what is happening, in words, from the trace
+  const st = $('status'), stText = $('status-text');
+  if (busy) {
+    st.className = 'busy';
+    stText.textContent = (s.progress && s.progress.text) || 'working…';
+  } else if (s.terminal) {
+    st.className = 'ok';
+    stText.textContent = s.outcome ? ('finished — ' + s.outcome) : 'finished';
+  } else if (s.pending) {
+    st.className = 'busy';
+    stText.textContent = 'waiting for your yes or no';
+  } else {
+    st.className = '';
+    stText.textContent = 'ready — type a request';
+  }
+
+  // web results, clearly marked as external and untrusted
+  const rc = $('research-card'), rl = $('research');
+  const hits = s.search_hits || [];
+  if (hits.length) {
+    rc.style.display = '';
+    rl.innerHTML = hits.map(h => {
+      let host = '';
+      try { host = new URL(h.url).hostname.replace(/^www\./, ''); } catch(e) {}
+      return `<div class="hit"><a href="${esc(h.url)}" target="_blank"
+                rel="noopener noreferrer">${esc(h.title || host || h.url)}</a>
+              <span class="sn">${esc(h.snippet || '')}</span></div>`;
+    }).join('');
+  } else {
+    rc.style.display = 'none';
+  }
+
   // slots
   const sl = $('slots'); const keys = Object.keys(s.slots || {});
   sl.innerHTML = keys.length
@@ -369,8 +447,8 @@ function render(s){
   }
 
   // input lock: a terminal session cannot take more turns
-  $('text').disabled = !!s.terminal;
-  $('send').disabled = !!s.terminal;
+  $('text').disabled = !!s.terminal || busy;
+  $('send').disabled = !!s.terminal || busy;
   $('text').placeholder = s.terminal
     ? 'session ended — /new to start another'
     : 'Find a plumber in Koramangala this week, mornings, under Rs 1500';
@@ -402,7 +480,10 @@ async function say(text){
   if(text.startsWith('/')){ await command(text); return; }
   bubble('user', text);
   $('text').value = '';
+  busy = true;
   $('text').disabled = true; $('send').disabled = true;
+  $('status').className = 'busy';
+  $('status-text').textContent = 'sending…';
   try{
     const res = await post('/api/turn', {text});
     if(res.reply) bubble('agent', res.reply);
@@ -411,6 +492,7 @@ async function say(text){
   }catch(e){
     sys('request failed: ' + e.message, 'bad');
   }finally{
+    busy = false;
     $('text').disabled = false; $('send').disabled = false;
     $('text').focus();
     refresh();
@@ -433,6 +515,8 @@ async function forget(key){
 $('say').addEventListener('submit', e => { e.preventDefault(); say(); });
 refresh();
 setInterval(refresh, 1500);
+// during a turn, poll faster: the point of the status line is that it keeps up
+setInterval(() => { if (busy) refresh(); }, 400);
 </script>
 </body>
 </html>
@@ -483,8 +567,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, PAGE.encode(), "text/html; charset=utf-8")
             return
         if path == "/api/state":
-            with self.lock:
-                payload = snapshot(self.orch, self.watcher, self.trace_path)
+            # Deliberately NOT under the turn lock. A turn can run for twenty seconds
+            # of model latency, and the whole purpose of this endpoint during that time
+            # is to show what is happening. snapshot() copies what it reads.
+            payload = snapshot(self.orch, self.watcher, self.trace_path)
             payload["model"] = self.model_label
             self._json(payload)
             return

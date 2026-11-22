@@ -29,10 +29,11 @@ def _sources() -> dict[str, ast.Module]:
     return out
 
 
-def test_state_set_is_exactly_ten():
+def test_state_set_is_exactly_eleven():
+    """Ten booking states plus RESEARCHING for the read-only web lookup."""
     from errand.policy import State
 
-    assert len(State) == 10
+    assert len(State) == 11
 
 
 def test_the_mock_is_the_only_place_side_effects_are_implemented():
