@@ -1,0 +1,402 @@
+[
+  {
+    "key": "preferred_area",
+    "value": "Indiranagar",
+    "category": "location",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": false
+  },
+  {
+    "key": "earliest_acceptable_time",
+    "value": "10:00",
+    "category": "scheduling",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": false
+  },
+  {
+    "key": "preferred_technician",
+    "value": "Ravi Kumar",
+    "category": "technician",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": false
+  },
+  {
+    "key": "budget_ceiling",
+    "value": "1500",
+    "category": "budget",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": false
+  },
+  {
+    "key": "prefers_morning_slots",
+    "value": "yes",
+    "category": "scheduling",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": false
+  },
+  {
+    "key": "flat_number",
+    "value": "4B",
+    "category": "address",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": false
+  },
+  {
+    "key": "has_dog",
+    "value": "yes",
+    "category": "household",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": false
+  },
+  {
+    "key": "preferred_plumber",
+    "value": "prov_01",
+    "category": "technician",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": false
+  },
+  {
+    "key": "avoid_weekends",
+    "value": "yes",
+    "category": "scheduling",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": false
+  },
+  {
+    "key": "preferred_payment",
+    "value": "upi",
+    "category": "payment",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": false
+  },
+  {
+    "key": "last_ac_service",
+    "value": "2026-09-14",
+    "category": "history",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": false
+  },
+  {
+    "key": "gate_code_note",
+    "value": "call before arriving",
+    "category": "access",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": false
+  },
+  {
+    "key": "prefers_verified_only",
+    "value": "yes",
+    "category": "quality",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": false
+  },
+  {
+    "key": "preferred_language",
+    "value": "hindi",
+    "category": "communication",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": false
+  },
+  {
+    "key": "inferred_hint_1",
+    "value": "guess_value_1",
+    "category": "preference",
+    "source": "inferred",
+    "confirmed": false,
+    "forgotten": false
+  },
+  {
+    "key": "inferred_hint_2",
+    "value": "guess_value_2",
+    "category": "preference",
+    "source": "inferred",
+    "confirmed": false,
+    "forgotten": false
+  },
+  {
+    "key": "inferred_hint_3",
+    "value": "guess_value_3",
+    "category": "preference",
+    "source": "inferred",
+    "confirmed": false,
+    "forgotten": false
+  },
+  {
+    "key": "inferred_hint_4",
+    "value": "guess_value_4",
+    "category": "preference",
+    "source": "inferred",
+    "confirmed": false,
+    "forgotten": false
+  },
+  {
+    "key": "inferred_hint_5",
+    "value": "guess_value_5",
+    "category": "preference",
+    "source": "inferred",
+    "confirmed": false,
+    "forgotten": false
+  },
+  {
+    "key": "inferred_hint_6",
+    "value": "guess_value_6",
+    "category": "preference",
+    "source": "inferred",
+    "confirmed": false,
+    "forgotten": false
+  },
+  {
+    "key": "inferred_hint_7",
+    "value": "guess_value_7",
+    "category": "preference",
+    "source": "inferred",
+    "confirmed": false,
+    "forgotten": false
+  },
+  {
+    "key": "inferred_hint_8",
+    "value": "guess_value_8",
+    "category": "preference",
+    "source": "inferred",
+    "confirmed": false,
+    "forgotten": false
+  },
+  {
+    "key": "inferred_hint_9",
+    "value": "guess_value_9",
+    "category": "preference",
+    "source": "inferred",
+    "confirmed": false,
+    "forgotten": false
+  },
+  {
+    "key": "inferred_hint_10",
+    "value": "guess_value_10",
+    "category": "preference",
+    "source": "inferred",
+    "confirmed": false,
+    "forgotten": false
+  },
+  {
+    "key": "inferred_hint_11",
+    "value": "guess_value_11",
+    "category": "preference",
+    "source": "inferred",
+    "confirmed": false,
+    "forgotten": false
+  },
+  {
+    "key": "inferred_hint_12",
+    "value": "guess_value_12",
+    "category": "preference",
+    "source": "inferred",
+    "confirmed": false,
+    "forgotten": false
+  },
+  {
+    "key": "inferred_hint_13",
+    "value": "guess_value_13",
+    "category": "preference",
+    "source": "inferred",
+    "confirmed": false,
+    "forgotten": false
+  },
+  {
+    "key": "inferred_hint_14",
+    "value": "guess_value_14",
+    "category": "preference",
+    "source": "inferred",
+    "confirmed": false,
+    "forgotten": false
+  },
+  {
+    "key": "inferred_hint_15",
+    "value": "guess_value_15",
+    "category": "preference",
+    "source": "inferred",
+    "confirmed": false,
+    "forgotten": false
+  },
+  {
+    "key": "inferred_hint_16",
+    "value": "guess_value_16",
+    "category": "preference",
+    "source": "inferred",
+    "confirmed": false,
+    "forgotten": false
+  },
+  {
+    "key": "inferred_hint_17",
+    "value": "guess_value_17",
+    "category": "preference",
+    "source": "inferred",
+    "confirmed": false,
+    "forgotten": false
+  },
+  {
+    "key": "inferred_hint_18",
+    "value": "guess_value_18",
+    "category": "preference",
+    "source": "inferred",
+    "confirmed": false,
+    "forgotten": false
+  },
+  {
+    "key": "old_pref_1",
+    "value": "stale_value_1",
+    "category": "preference",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": true
+  },
+  {
+    "key": "old_pref_2",
+    "value": "stale_value_2",
+    "category": "preference",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": true
+  },
+  {
+    "key": "old_pref_3",
+    "value": "stale_value_3",
+    "category": "preference",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": true
+  },
+  {
+    "key": "old_pref_4",
+    "value": "stale_value_4",
+    "category": "preference",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": true
+  },
+  {
+    "key": "old_pref_5",
+    "value": "stale_value_5",
+    "category": "preference",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": true
+  },
+  {
+    "key": "old_pref_6",
+    "value": "stale_value_6",
+    "category": "preference",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": true
+  },
+  {
+    "key": "old_pref_7",
+    "value": "stale_value_7",
+    "category": "preference",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": true
+  },
+  {
+    "key": "old_pref_8",
+    "value": "stale_value_8",
+    "category": "preference",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": true
+  },
+  {
+    "key": "favourite_colour",
+    "value": "favourite_colour_value",
+    "category": "irrelevant",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": false
+  },
+  {
+    "key": "car_model",
+    "value": "car_model_value",
+    "category": "irrelevant",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": false
+  },
+  {
+    "key": "pet_name",
+    "value": "pet_name_value",
+    "category": "irrelevant",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": false
+  },
+  {
+    "key": "laptop_brand",
+    "value": "laptop_brand_value",
+    "category": "irrelevant",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": false
+  },
+  {
+    "key": "phone_os",
+    "value": "phone_os_value",
+    "category": "irrelevant",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": false
+  },
+  {
+    "key": "coffee_order",
+    "value": "coffee_order_value",
+    "category": "irrelevant",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": false
+  },
+  {
+    "key": "newspaper",
+    "value": "newspaper_value",
+    "category": "irrelevant",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": false
+  },
+  {
+    "key": "gym_name",
+    "value": "gym_name_value",
+    "category": "irrelevant",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": false
+  },
+  {
+    "key": "blood_group",
+    "value": "blood_group_value",
+    "category": "irrelevant",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": false
+  },
+  {
+    "key": "sibling_name",
+    "value": "sibling_name_value",
+    "category": "irrelevant",
+    "source": "user",
+    "confirmed": true,
+    "forgotten": false
+  }
+]

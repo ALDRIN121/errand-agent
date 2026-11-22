@@ -1,0 +1,1068 @@
+[
+  {
+    "id": "prov_01",
+    "seed_index": 0,
+    "service": "plumber",
+    "area": "Indiranagar",
+    "price_paise": 120000,
+    "rating": 3.7,
+    "attributes": {
+      "years_experience": 2,
+      "verified": true,
+      "languages": [
+        "en",
+        "hi",
+        "kn"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_02",
+    "seed_index": 1,
+    "service": "plumber",
+    "area": "Indiranagar",
+    "price_paise": 130000,
+    "rating": 4.4,
+    "attributes": {
+      "years_experience": 5,
+      "verified": false,
+      "languages": [
+        "en",
+        "hi"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_03",
+    "seed_index": 2,
+    "service": "plumber",
+    "area": "Indiranagar",
+    "price_paise": 140000,
+    "rating": 3.8,
+    "attributes": {
+      "years_experience": 8,
+      "verified": true,
+      "languages": [
+        "en",
+        "hi"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_04",
+    "seed_index": 3,
+    "service": "plumber",
+    "area": "Koramangala",
+    "price_paise": 120000,
+    "rating": 4.5,
+    "attributes": {
+      "years_experience": 11,
+      "verified": false,
+      "languages": [
+        "en",
+        "hi",
+        "kn"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_05",
+    "seed_index": 4,
+    "service": "plumber",
+    "area": "Koramangala",
+    "price_paise": 130000,
+    "rating": 3.9,
+    "attributes": {
+      "years_experience": 3,
+      "verified": true,
+      "languages": [
+        "en",
+        "hi"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_06",
+    "seed_index": 5,
+    "service": "plumber",
+    "area": "Koramangala",
+    "price_paise": 140000,
+    "rating": 4.6,
+    "attributes": {
+      "years_experience": 6,
+      "verified": false,
+      "languages": [
+        "en",
+        "hi"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_07",
+    "seed_index": 6,
+    "service": "plumber",
+    "area": "Koramangala",
+    "price_paise": 142500,
+    "rating": 4.0,
+    "attributes": {
+      "years_experience": 9,
+      "verified": true,
+      "languages": [
+        "en",
+        "hi",
+        "kn"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_08",
+    "seed_index": 7,
+    "service": "plumber",
+    "area": "HSR Layout",
+    "price_paise": 122500,
+    "rating": 4.7,
+    "attributes": {
+      "years_experience": 12,
+      "verified": false,
+      "languages": [
+        "en",
+        "hi"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_09",
+    "seed_index": 8,
+    "service": "plumber",
+    "area": "HSR Layout",
+    "price_paise": 132500,
+    "rating": 4.1,
+    "attributes": {
+      "years_experience": 4,
+      "verified": true,
+      "languages": [
+        "en",
+        "hi"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_10",
+    "seed_index": 9,
+    "service": "plumber",
+    "area": "HSR Layout",
+    "price_paise": 135000,
+    "rating": 4.8,
+    "attributes": {
+      "years_experience": 7,
+      "verified": false,
+      "languages": [
+        "en",
+        "hi",
+        "kn"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_11",
+    "seed_index": 10,
+    "service": "plumber",
+    "area": "HSR Layout",
+    "price_paise": 145000,
+    "rating": 4.2,
+    "attributes": {
+      "years_experience": 10,
+      "verified": true,
+      "languages": [
+        "en",
+        "hi"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_12",
+    "seed_index": 11,
+    "service": "plumber",
+    "area": "HSR Layout",
+    "price_paise": 155000,
+    "rating": 4.9,
+    "attributes": {
+      "years_experience": 2,
+      "verified": false,
+      "languages": [
+        "en",
+        "hi"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_13",
+    "seed_index": 12,
+    "service": "electrician",
+    "area": "Indiranagar",
+    "price_paise": 145000,
+    "rating": 4.3,
+    "attributes": {
+      "years_experience": 5,
+      "verified": true,
+      "languages": [
+        "en",
+        "hi",
+        "kn"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_14",
+    "seed_index": 13,
+    "service": "electrician",
+    "area": "Indiranagar",
+    "price_paise": 155000,
+    "rating": 3.7,
+    "attributes": {
+      "years_experience": 8,
+      "verified": false,
+      "languages": [
+        "en",
+        "hi"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_15",
+    "seed_index": 14,
+    "service": "electrician",
+    "area": "Indiranagar",
+    "price_paise": 165000,
+    "rating": 4.4,
+    "attributes": {
+      "years_experience": 11,
+      "verified": true,
+      "languages": [
+        "en",
+        "hi"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_16",
+    "seed_index": 15,
+    "service": "electrician",
+    "area": "Indiranagar",
+    "price_paise": 167500,
+    "rating": 3.8,
+    "attributes": {
+      "years_experience": 3,
+      "verified": false,
+      "languages": [
+        "en",
+        "hi",
+        "kn"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_17",
+    "seed_index": 16,
+    "service": "electrician",
+    "area": "Indiranagar",
+    "price_paise": 177500,
+    "rating": 4.5,
+    "attributes": {
+      "years_experience": 6,
+      "verified": true,
+      "languages": [
+        "en",
+        "hi"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_18",
+    "seed_index": 17,
+    "service": "electrician",
+    "area": "Indiranagar",
+    "price_paise": 187500,
+    "rating": 3.9,
+    "attributes": {
+      "years_experience": 9,
+      "verified": false,
+      "languages": [
+        "en",
+        "hi"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_19",
+    "seed_index": 18,
+    "service": "electrician",
+    "area": "Koramangala",
+    "price_paise": 145000,
+    "rating": 4.6,
+    "attributes": {
+      "years_experience": 12,
+      "verified": true,
+      "languages": [
+        "en",
+        "hi",
+        "kn"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_20",
+    "seed_index": 19,
+    "service": "electrician",
+    "area": "Koramangala",
+    "price_paise": 155000,
+    "rating": 4.0,
+    "attributes": {
+      "years_experience": 4,
+      "verified": false,
+      "languages": [
+        "en",
+        "hi"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_21",
+    "seed_index": 20,
+    "service": "electrician",
+    "area": "Koramangala",
+    "price_paise": 165000,
+    "rating": 4.7,
+    "attributes": {
+      "years_experience": 7,
+      "verified": true,
+      "languages": [
+        "en",
+        "hi"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_22",
+    "seed_index": 21,
+    "service": "electrician",
+    "area": "HSR Layout",
+    "price_paise": 145000,
+    "rating": 4.1,
+    "attributes": {
+      "years_experience": 10,
+      "verified": false,
+      "languages": [
+        "en",
+        "hi",
+        "kn"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_23",
+    "seed_index": 22,
+    "service": "electrician",
+    "area": "HSR Layout",
+    "price_paise": 155000,
+    "rating": 4.8,
+    "attributes": {
+      "years_experience": 2,
+      "verified": true,
+      "languages": [
+        "en",
+        "hi"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_24",
+    "seed_index": 23,
+    "service": "electrician",
+    "area": "HSR Layout",
+    "price_paise": 165000,
+    "rating": 4.2,
+    "attributes": {
+      "years_experience": 5,
+      "verified": false,
+      "languages": [
+        "en",
+        "hi"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_25",
+    "seed_index": 24,
+    "service": "electrician",
+    "area": "HSR Layout",
+    "price_paise": 167500,
+    "rating": 4.9,
+    "attributes": {
+      "years_experience": 8,
+      "verified": true,
+      "languages": [
+        "en",
+        "hi",
+        "kn"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_26",
+    "seed_index": 25,
+    "service": "ac_service",
+    "area": "Indiranagar",
+    "price_paise": 182500,
+    "rating": 4.3,
+    "attributes": {
+      "years_experience": 11,
+      "verified": false,
+      "languages": [
+        "en",
+        "hi"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_27",
+    "seed_index": 26,
+    "service": "ac_service",
+    "area": "Indiranagar",
+    "price_paise": 192500,
+    "rating": 3.7,
+    "attributes": {
+      "years_experience": 3,
+      "verified": true,
+      "languages": [
+        "en",
+        "hi"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_28",
+    "seed_index": 27,
+    "service": "ac_service",
+    "area": "Indiranagar",
+    "price_paise": 195000,
+    "rating": 4.4,
+    "attributes": {
+      "years_experience": 6,
+      "verified": false,
+      "languages": [
+        "en",
+        "hi",
+        "kn"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_29",
+    "seed_index": 28,
+    "service": "ac_service",
+    "area": "Indiranagar",
+    "price_paise": 205000,
+    "rating": 3.8,
+    "attributes": {
+      "years_experience": 9,
+      "verified": true,
+      "languages": [
+        "en",
+        "hi"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_30",
+    "seed_index": 29,
+    "service": "ac_service",
+    "area": "Indiranagar",
+    "price_paise": 215000,
+    "rating": 4.5,
+    "attributes": {
+      "years_experience": 12,
+      "verified": false,
+      "languages": [
+        "en",
+        "hi"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_31",
+    "seed_index": 30,
+    "service": "ac_service",
+    "area": "Koramangala",
+    "price_paise": 180000,
+    "rating": 3.9,
+    "attributes": {
+      "years_experience": 4,
+      "verified": true,
+      "languages": [
+        "en",
+        "hi",
+        "kn"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_32",
+    "seed_index": 31,
+    "service": "ac_service",
+    "area": "Koramangala",
+    "price_paise": 190000,
+    "rating": 4.6,
+    "attributes": {
+      "years_experience": 7,
+      "verified": false,
+      "languages": [
+        "en",
+        "hi"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_33",
+    "seed_index": 32,
+    "service": "ac_service",
+    "area": "Koramangala",
+    "price_paise": 200000,
+    "rating": 4.0,
+    "attributes": {
+      "years_experience": 10,
+      "verified": true,
+      "languages": [
+        "en",
+        "hi"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_34",
+    "seed_index": 33,
+    "service": "ac_service",
+    "area": "Koramangala",
+    "price_paise": 202500,
+    "rating": 4.7,
+    "attributes": {
+      "years_experience": 2,
+      "verified": false,
+      "languages": [
+        "en",
+        "hi",
+        "kn"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_35",
+    "seed_index": 34,
+    "service": "ac_service",
+    "area": "Koramangala",
+    "price_paise": 212500,
+    "rating": 4.1,
+    "attributes": {
+      "years_experience": 5,
+      "verified": true,
+      "languages": [
+        "en",
+        "hi"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_36",
+    "seed_index": 35,
+    "service": "ac_service",
+    "area": "Koramangala",
+    "price_paise": 222500,
+    "rating": 4.8,
+    "attributes": {
+      "years_experience": 8,
+      "verified": false,
+      "languages": [
+        "en",
+        "hi"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_37",
+    "seed_index": 36,
+    "service": "ac_service",
+    "area": "HSR Layout",
+    "price_paise": 180000,
+    "rating": 4.2,
+    "attributes": {
+      "years_experience": 11,
+      "verified": true,
+      "languages": [
+        "en",
+        "hi",
+        "kn"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_38",
+    "seed_index": 37,
+    "service": "ac_service",
+    "area": "HSR Layout",
+    "price_paise": 190000,
+    "rating": 4.9,
+    "attributes": {
+      "years_experience": 3,
+      "verified": false,
+      "languages": [
+        "en",
+        "hi"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  },
+  {
+    "id": "prov_39",
+    "seed_index": 38,
+    "service": "ac_service",
+    "area": "HSR Layout",
+    "price_paise": 200000,
+    "rating": 4.3,
+    "attributes": {
+      "years_experience": 6,
+      "verified": true,
+      "languages": [
+        "en",
+        "hi"
+      ]
+    },
+    "slot_hours": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      14,
+      15,
+      16
+    ]
+  }
+]
