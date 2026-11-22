@@ -71,7 +71,7 @@ def test_cli_starts_and_quits(monkeypatch, capsys):
 
     monkeypatch.setattr("builtins.input", lambda *_: "/quit")
     with pytest.raises(SystemExit):
-        cli.main(["--seed", "7"])
+        cli.main(["--script", "1"])
 
 
 def test_memory_command_lists_admissible_rows(monkeypatch, capsys):
@@ -87,7 +87,7 @@ def test_memory_command_lists_admissible_rows(monkeypatch, capsys):
 
     monkeypatch.setattr("builtins.input", fake_input)
     with pytest.raises(SystemExit):
-        cli.main(["--seed", "7"])
+        cli.main(["--script", "1"])
     out = capsys.readouterr().out
     assert "preferred_area" in out or "(nothing stored)" in out
 
@@ -115,3 +115,40 @@ def test_state_command_reports_the_fsm():
     with redirect_stdout(buf):
         _command("/state", FakeOrch(), FakeWatcher(), None, None)
     assert "NEW" in buf.getvalue()
+
+
+def test_cli_has_a_main_guard():
+    """Without it `python -m errand.cli` imported the module and exited silently:
+    exit code 0 and no output at all, which reads as a broken demo."""
+    source = _cli_source()
+    assert '__name__ == "__main__"' in source
+
+
+def test_scripted_without_a_queue_fails_loudly(monkeypatch, capsys):
+    """An empty ScriptedLLM made every turn produce nothing, with no error."""
+    from errand.cli import main
+
+    code = main(["--llm", "scripted"])
+    assert code == 2
+    assert "queue" in capsys.readouterr().err
+
+
+def test_script_mode_replays_a_real_scenario(monkeypatch, capsys):
+    """--script must use the same actions the eval asserts on, not an approximation."""
+    from errand import cli
+
+    lines = iter(["Find a plumber for my kitchen tap this week, mornings only.",
+                  "Sounds good, thanks", "/quit"])
+
+    def fake_input(*_):
+        try:
+            return next(lines)
+        except StopIteration:
+            raise EOFError
+
+    monkeypatch.setattr("builtins.input", fake_input)
+    # the session reaches TERMINAL and the loop exits normally, so no SystemExit
+    assert cli.main(["--script", "1"]) == 0
+    out = capsys.readouterr().out
+    assert "Confirm?" in out, out
+    assert "Booked:" in out, out

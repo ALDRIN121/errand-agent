@@ -58,6 +58,9 @@ def build(args) -> tuple[Orchestrator, Watcher, Tracer | None, Database]:
         history = world.history
         memory = world.memory
 
+    if args.script is not None:
+        args.llm = "scripted"
+
     if args.llm == "real":
         missing = [
             name for name in ("ERRAND_LLM_BASE_URL", "ERRAND_LLM_KEY", "ERRAND_LLM_MODEL")
@@ -73,8 +76,24 @@ def build(args) -> tuple[Orchestrator, Watcher, Tracer | None, Database]:
             api_key=os.environ["ERRAND_LLM_KEY"],
             model=os.environ["ERRAND_LLM_MODEL"],
         )
+    elif args.script is not None:
+        # Demo without credentials: replay one scenario's actions. The queue is real
+        # (it comes from evals/scenarios.py), so this is not an empty client.
+        from evals.runner import actions_for
+        from evals.scenarios import SCENARIOS
+
+        chosen = next((s for s in SCENARIOS if s.id == args.script), None)
+        if chosen is None:
+            raise SystemExit(f"no scenario {args.script}; try 1-37")
+        llm = ScriptedLLM(actions_for(chosen))
     else:
-        llm = ScriptedLLM([])
+        # An empty script would make every turn silently produce nothing: the REPL
+        # would look broken with no error. The scripted client exists for the eval
+        # harness and for --script, both of which supply a real queue.
+        raise SystemExit(
+            "--llm scripted needs a queue: pass --script <scenario id>, or use "
+            "--llm real with ERRAND_LLM_BASE_URL/KEY/MODEL set."
+        )
 
     orch = Orchestrator(
         clock=clock, server=server, db=db, memory=memory, history=history,
@@ -87,12 +106,14 @@ def build(args) -> tuple[Orchestrator, Watcher, Tracer | None, Database]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="errand", description="home-services agent")
-    parser.add_argument("--llm", choices=("real", "scripted"), default="scripted")
+    parser.add_argument("--llm", choices=("real", "scripted"), default="real")
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--scenario", default="happy")
     parser.add_argument("--user", default="u_aldrin")
     parser.add_argument("--trace", default=None)
     parser.add_argument("--db", default=":memory:")
+    parser.add_argument("--script", type=int, default=None,
+                        help="replay scenario N's model actions (no credentials needed)")
     args = parser.parse_args(argv)
 
     try:
@@ -180,3 +201,7 @@ def _command(line: str, orch, watcher, tracer, db) -> bool:
 
 
 __all__ = ["main", "build", "render_outcome"]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

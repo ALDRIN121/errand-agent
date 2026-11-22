@@ -87,3 +87,79 @@ delta), `test_dialogue_services_match_the_provider_they_name`, and
 instance of the same drift: `prov_20` was flagged clean while `seed_index % 3 == 1`
 means the mock injects there. Four guards, because one cross-reference test would
 not have caught the other three.
+
+
+---
+
+## Bug 4 — the transient retry never ran for side effects
+
+**Observed.** Scenario 14 (cancel 503 retry) reached `tool_failure` on the first
+503 instead of retrying, so the run ended with nothing cancelled.
+
+**Cause.** The one-retry-for-`transient` rule lived in `tools/gateway.py`. But
+`book`, `cancel` and `reschedule` are deliberately *not* dispatched through the
+gateway — they go through `ApprovalStore.execute_if_approved`, which is the
+call-site monopoly. So the retry policy applied to the read-only tools and silently
+did not apply to the three that matter most. Two correct decisions composed into a
+gap: "put retries in one place" and "route side effects through the approval store".
+
+**Fix.** The retry loop now lives at the side-effect call site, keyed on the same
+`transient` class and reusing the same idempotency key, with a `side_effect_retry`
+trace event. The gateway keeps its own retry for reads.
+
+**Regression test.** Scenario 14, plus `test_architecture.py` asserting the
+side-effecting call sites exist only in the orchestrator.
+
+**Lesson.** A cross-cutting policy placed in one module is only cross-cutting if
+every path goes through that module. When a path is deliberately excluded for a good
+reason, the policy has to be restated on the other side, and a test has to prove it.
+
+---
+
+## Bug 5 — a correction containing "not" ended the session
+
+**Observed.** Scenario 4 sent "Actually make the window mornings only, not
+afternoons" with an approval open. The classifier returned `deny`, the approval was
+invalidated, and the run terminated `abandoned_by_user`.
+
+**Cause.** `classify()` checked negation tokens first, and `_NEGATE` contains "not".
+`has_new_constraint()` existed to catch amendments but only matched clock times and
+digit amounts, so an amended *day or window* carried no signal and the reply fell
+through to `deny`.
+
+**Fix.** Amendments are now checked first, and the constraint check includes a closed
+list of detail words (mornings, Saturday, cheaper, earlier, …). A negation with no
+other content (`"no"`, `"no thanks"`) is still a refusal via `_is_bare_negation`;
+"No, find someone else" stays a denial because "find someone else" is content that
+is not an amendment to the thing on the table.
+
+**Regression test.** Ten classification cases pinned in `test_classify.py`,
+including the four that matter: amendment → `other`, bare no → `deny`,
+"No, find someone else" → `deny`, "yes, go ahead" → `affirm`.
+
+---
+
+## Bug 6 — the trace was unusable as evidence
+
+Three defects in one file, each found by reading a real trace rather than the code:
+
+1. **Append mode.** `Tracer` opened with `"a"`, so re-running a scenario wrote a
+   second copy of every event. A 12-event run read back as 36 events, and every
+   "exactly one" assertion would have been measuring the wrong thing. One trace path
+   is one run, so it now truncates.
+2. **Over-broad credential filter.** `_SECRET` matched the substring `token`, which
+   redacted `tokens` — the context-budget count, the whole point of the manifest. It
+   also hid `idempotency_key`, a deterministic public identifier the dedupe assertion
+   reads. The pattern is now anchored to credential-shaped key names.
+3. **Misattributed verified success.** `_after_verify` emitted `side_effect_ok` with
+   `tool=session.outcome_verb or "book"`, but `outcome_verb` is assigned *inside*
+   `_terminal`, which runs afterwards. A verified cancel was therefore recorded as a
+   `book`, and invariant I2's `(tool, booking_id)` key never matched the approval.
+
+**Regression test.** `tests/test_trace.py` — ten tests, including that a verified
+success emits `side_effect_ok` with the right tool and that the token count survives
+redaction.
+
+**Lesson.** The trace is the evidence base for eleven invariants. A bug in the trace
+writer does not fail a test; it makes tests pass for the wrong reason, or fail for a
+reason nobody can see. The instrumentation needs its own suite.

@@ -75,6 +75,21 @@ def _to_action(spec: dict, world) -> Action:
     return Action(tool=tool, args=args, message=message)
 
 
+def actions_for(scenario: Scenario, world=None) -> list:
+    """The scenario's scripted actions as `Action`s.
+
+    Shared with the CLI's --script mode so a demo replays exactly the actions the
+    eval asserts on, rather than a hand-written approximation of them.
+    """
+    flat: list[dict] = []
+    for spec in scenario.scripted:
+        if isinstance(spec, list):
+            flat.extend(spec)
+        else:
+            flat.append(spec)
+    return [_to_action(spec, world) for spec in flat]
+
+
 def run_scenario(scenario: Scenario, trace_dir: Path | None = None) -> RunResult:
     clock = FakeClock(ANCHOR.replace(hour=8))
     world = build_world(clock, seed=scenario.seed, scenario=scenario.scenario,

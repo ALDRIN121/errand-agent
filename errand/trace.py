@@ -25,6 +25,17 @@ _SECRET = re.compile(
 
 def sanitize(value: Any, truncated: bool = True) -> Any:
     """Strip control characters and cap length. Never raises on odd input."""
+    # A dataclass repr is neither stable nor parseable, and the trace is machine-read
+    # evidence. Slots and holds become ISO strings.
+    if hasattr(value, "start") and hasattr(value, "end"):
+        return {"start": value.start.isoformat(), "end": value.end.isoformat()}
+    if hasattr(value, "hold_id") and hasattr(value, "expires_at"):
+        return {
+            "hold_id": value.hold_id,
+            "slot": sanitize(value.slot, truncated),
+            "quote_paise": value.quote_paise,
+            "expires_at": value.expires_at.isoformat(),
+        }
     if isinstance(value, str):
         text = _CONTROL.sub(" ", value)
         if truncated and len(text) > _TRUNCATE:
