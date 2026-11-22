@@ -29,6 +29,7 @@ OUTCOMES = (
     "cancelled",
     "budget_turns",
     "budget_tools",
+    "repeated_tool_call",
 )
 
 
@@ -153,6 +154,12 @@ def render_outcome(token: str, ctx: OutcomeContext | None = None) -> str:
         return (
             "I have used my turn budget for this request without finishing, so nothing "
             "was booked. Ask me again and I will pick up where I left off."
+        )
+
+    if token == "repeated_tool_call":
+        return (
+            "I got stuck asking the same question twice without moving forward, so I "
+            "stopped rather than risk booking the wrong thing. Nothing was booked."
         )
 
     if token == "budget_tools":

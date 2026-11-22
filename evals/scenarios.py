@@ -273,8 +273,9 @@ SCENARIOS: list[Scenario] = [
         24, "tool-call budget exhaustion", "happy", 7, "u_aldrin",
         ["Plumber in Koramangala."] * 6,
         [SEARCH] * 22,
-        frozenset({"budget_tools"}),
-        notes="No dispatch after the 20th call.",
+        frozenset({"repeated_tool_call"}),
+        notes="Twenty-two identical searches: the repeat detector fires long before the "
+              "budget does, so the honest token is a repetition, not a spent budget.",
     ),
     Scenario(
         25, "model-turn budget exhaustion", "happy", 7, "u_aldrin",
@@ -423,6 +424,27 @@ SCENARIOS: list[Scenario] = [
         web_off=False,
         web_fails=True,
         notes="A failing search is a typed refusal, not an empty result and not a crash.",
+    ),
+    Scenario(
+        41, "tool-call budget exhaustion with distinct calls", "happy", 7, "u_aldrin",
+        ["Plumber in Koramangala."] * 5,
+        # Distinct queries, six per turn (MAX_STEPS_PER_TURN), so the repeat detector
+        # never fires and TOOL_BUDGET is the only thing that can stop the run.
+        [SEARCH]
+        + [A("web_search", {"query": f"plumber rates in Bangalore page {n}"})
+           for n in range(1, 7)]
+        + [[A("web_search", {"query": f"plumber rates in Bangalore page {n}"})
+            for n in range(7, 13)]]
+        + [[A("web_search", {"query": f"plumber rates in Bangalore page {n}"})
+            for n in range(13, 19)]]
+        + [A("web_search", {"query": "plumber rates in Bangalore page 19"}),
+           A("web_search", {"query": "plumber rates in Bangalore page 20"})],
+        frozenset({"budget_tools"}),
+        web_off=False,
+        web_hits=(("Plumber rates", "https://example.test/r", "Rs 400-900"),),
+        notes="TOOL_BUDGET is session-wide but MAX_STEPS_PER_TURN caps a turn at six, so "
+              "the budget can only be reached across turns. Distinct queries keep the "
+              "repeat detector out of the way, which is what makes this a budget test.",
     ),
 ]
 

@@ -330,8 +330,21 @@ class Orchestrator:
                              state=self.session.state.value)
 
         self._progress("thinking")
+        # The streamed prose is progress, not the terminal sentence: it is written to
+        # the trace as `reply_delta` and shown as it arrives, while the sentence a user
+        # is finally given still comes from render_outcome. A model that narrates one
+        # thing and does another must not be able to leave the narration on screen
+        # unopposed.
+        def _on_delta(text: str) -> None:
+            if self.tracer:
+                self.tracer.emit("reply_delta", text=text, state=self.session.state.value)
+
         try:
-            action = self.llm.propose(self.context.render_text(prompt), state=self.session.state.value)
+            action = self.llm.propose(
+                self.context.render_text(prompt),
+                state=self.session.state.value,
+                on_delta=_on_delta,
+            )
         except ScriptExhausted:
             raise
         except LLMError as exc:
@@ -482,7 +495,9 @@ class Orchestrator:
             if self.tracer:
                 self.tracer.emit("loop_detected", tool=name,
                                  state=self.session.state.value)
-            self._terminal("budget_tools")
+            # A repetition is its own outcome. Reporting it as a spent budget told the
+            # user they had used calls they had not used, and named the wrong remedy.
+            self._terminal("repeated_tool_call")
             self.session.slots["reason"] = f"repeated {name} with no change"
             return self._result(name, None)
         self._attempted.add(fingerprint)

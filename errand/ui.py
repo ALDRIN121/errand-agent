@@ -85,11 +85,41 @@ def snapshot(orch: Orchestrator, watcher: Watcher, trace_path: Path | None) -> d
         # The most recent human-readable progress line, so the page can say what is
         # happening instead of leaving a spinner with no explanation.
         "progress": _last_progress(trace_path),
+        # The turn in flight, assembled from the same trace. `reply_stream` is prose the
+        # model is writing right now and is NOT the answer: the answer is `reply`, which
+        # only exists once the runtime has decided something.
+        "reply_stream": _reply_stream(trace_path),
         "search_hits": [
             {"title": h.title, "url": h.url, "snippet": h.snippet}
             for h in getattr(orch, "search_hits", [])[:5]
         ],
     }
+
+
+def _reply_stream(trace_path: Path | None) -> dict | None:
+    """Deltas of the turn in flight, and the turn they belong to.
+
+    Bounded by the newest `turn` event so text from an earlier turn can never be shown
+    as if it were current — a stale sentence is worse than no sentence.
+
+    Marked `provisional` deliberately: this is the model talking, and only
+    `render_outcome` decides what a user is told actually happened.
+    """
+    if not trace_path:
+        return None
+    rows = read_trace(trace_path)[-120:]
+    start = 0
+    for index in range(len(rows) - 1, -1, -1):
+        if rows[index].get("type") == "turn":
+            start = index
+            break
+    parts: list[str] = []
+    for row in rows[start:]:
+        if row.get("type") == "reply_delta":
+            parts.append(row.get("text") or "")
+    if not parts:
+        return None
+    return {"text": "".join(parts), "provisional": True}
 
 
 def _jsonable(value):
@@ -274,6 +304,7 @@ PAGE = r"""<!doctype html>
 <div class="wrap">
   <section class="chat">
     <div id="log"></div>
+    <div id="live" hidden><span class="lbl">writing</span><span id="live-text"></span></div>
     <div id="status"><span class="dot"></span><span id="status-text">ready</span></div>
     <form id="say" autocomplete="off">
       <input id="text" type="text" placeholder="Find a plumber in Koramangala this week, mornings, under Rs 1500" autofocus>
@@ -386,6 +417,19 @@ function render(s){
        </div>`;
   } else {
     ap.innerHTML = '<span class="empty">nothing pending</span>';
+  }
+
+  // The model's prose, arriving. Shown while it is being written and removed as soon
+  // as the turn ends, because the finished message already carries it: leaving both
+  // would show the same sentence twice, and the top copy would be the one that had not
+  // been checked against what actually happened.
+  const live = $('live'), liveText = $('live-text'), stream = s.reply_stream;
+  if (busy && stream && stream.text) {
+    live.hidden = false;
+    liveText.textContent = stream.text;
+  } else {
+    live.hidden = true;
+    liveText.textContent = '';
   }
 
   // live progress: say what is happening, in words, from the trace

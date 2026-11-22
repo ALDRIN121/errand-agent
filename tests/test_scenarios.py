@@ -15,6 +15,7 @@ OUTCOME_TOKENS = {
     "booked", "booked_verified_after_timeout", "slot_taken", "slot_conflict",
     "hold_expired", "no_match", "unverified", "aborted_missing_details",
     "budget_turns", "budget_tools", "tool_failure", "cancelled", "abandoned_by_user",
+    "repeated_tool_call",
 }
 
 MOCK_SCENARIOS = {
@@ -24,12 +25,12 @@ MOCK_SCENARIOS = {
 }
 
 
-def test_exactly_40_scenarios():
-    assert len(SCENARIOS) == 40
+def test_exactly_41_scenarios():
+    assert len(SCENARIOS) == 41
 
 
 def test_ids_are_contiguous_from_one():
-    assert [s.id for s in SCENARIOS] == list(range(1, 41))
+    assert [s.id for s in SCENARIOS] == list(range(1, 42))
 
 
 def test_names_are_unique():

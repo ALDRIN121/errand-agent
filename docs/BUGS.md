@@ -281,3 +281,58 @@ a turn runs and asserts no poll raises.
 
 **Lesson.** Locking for correctness and locking for liveness are different decisions. The
 first version was correct and unobservable.
+
+
+---
+
+## Bug 11 — a loop was reported as a spent budget
+
+Watching a live turn, the agent asked `get_provider` for `prov_06`, got a complete
+answer, then asked again. The repeat detector caught it — and the user was told:
+
+> I have used my tool-call budget for this request without finishing.
+
+It had used three of twenty. The sentence named a limit that had not been reached and
+suggested a remedy ("narrowing the request") that would not have helped, because the
+problem was a repetition, not a wide request.
+
+**Fix.** A `repeated_tool_call` outcome token. Two different failures deserve two
+different sentences, and `render_outcome` is the only place either can be written.
+
+**Test.** Scenario 24 scripted twenty-two identical searches. It was always exercising
+the repeat detector, never the budget — so its expected token was wrong and had been
+wrong since the detector was added. Corrected, and scenario 41 added for the real thing.
+
+**A second bug found while writing that test:** `TOOL_BUDGET` is session-wide (20) but
+`MAX_STEPS_PER_TURN` caps a single turn at six, so no single turn can exhaust the budget.
+Scenario 41 has to spread distinct calls across several turns — and distinct calls are
+the point, because identical ones trip the repeat detector first. A test that reaches
+the budget by repeating itself is not testing the budget.
+
+**Lesson.** Two guards that both stop a run are not interchangeable, and reporting guard
+A as guard B makes the trace lie about the code.
+
+---
+
+## Bug 12 — the streamed reply never appeared
+
+Streaming was wired end to end and produced nothing. The stream was fine: 47 SSE frames
+arrived, parsed, and accumulated into the right JSON. The scanner was the problem, twice.
+
+**First fault.** `MessageScanner` advanced past any partial occurrence of the key. The
+provider splits JSON keys across chunks, so a frame boundary landing inside `"mess|age"`
+made the scanner step over the prefix and never find the key. Fixed by holding back
+`len(KEY) - 1` characters at the search position, so a straddling key is still findable
+on the next feed. The test now tries *every* split offset in the object, plus one
+character at a time.
+
+**Second fault.** `\uXXXX` escapes decoded to the literal hex digits — `\u20b9` showed as
+`20b9` instead of ₹. `self._hex` doubled as both "no digits yet" and "expecting digits",
+and `""` is falsy, so the accumulator branch never ran. Adding `_in_hex` as an explicit
+flag fixed it.
+
+**The bug this prevented.** Had the scanner "worked", the page would have typed the
+model's raw JSON at the user, one escaped fragment at a time.
+
+**Test.** `tests/test_streaming.py` — 12 tests, including every split boundary and a
+malformed-escape path.

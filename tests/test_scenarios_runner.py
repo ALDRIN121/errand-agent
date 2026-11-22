@@ -34,10 +34,10 @@ def test_watcher_scenario_passes(scenario):
     )
 
 
-def test_the_gate_is_now_40_of_40():
+def test_the_gate_is_now_41_of_41():
     """Phase 5 closes the two the Phase 4 gate deferred."""
     reports = [evaluate(s, include_watcher=True) for s in SCENARIOS]
-    assert len(reports) == 40
+    assert len(reports) == 41
     failing = [r.scenario.id for r in reports if not r.outcome_ok]
     assert not failing, f"scenarios not reaching an expected token: {failing}"
 
@@ -47,6 +47,6 @@ def test_all_ten_invariants_are_implemented():
     assert names == {f"I{i}" for i in range(1, 11)}
 
 
-def test_the_gate_is_38_core_scenarios():
-    assert len(CORE) == 38
+def test_the_gate_is_39_core_scenarios():
+    assert len(CORE) == 39
     assert len(WATCHER) == 2

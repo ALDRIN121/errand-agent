@@ -15,7 +15,7 @@ import ssl
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
-from typing import Literal, Protocol
+from typing import Callable, Literal, Protocol
 
 from errand.policy import CONTRACT_TOOLS, PROPOSAL_NOTES, SIDE_EFFECTING, proposable
 
@@ -63,7 +63,13 @@ class Action:
 class LLMClient(Protocol):
     mode: LLMMode
 
-    def propose(self, prompt: str, *, state: str) -> Action: ...
+    def propose(
+        self,
+        prompt: str,
+        *,
+        state: str,
+        on_delta: Callable[[str], None] | None = None,
+    ) -> Action: ...
 
 
 class ScriptedLLM:
@@ -80,7 +86,13 @@ class ScriptedLLM:
     def remaining(self) -> int:
         return len(self._queue)
 
-    def propose(self, prompt: str, *, state: str) -> Action:
+    def propose(
+        self,
+        prompt: str,
+        *,
+        state: str,
+        on_delta: Callable[[str], None] | None = None,
+    ) -> Action:
         self.prompts.append(prompt)
         if not self._queue:
             raise ScriptExhausted(
@@ -88,6 +100,12 @@ class ScriptedLLM:
             )
         action = self._queue.pop(0)
         self.consumed.append(action)
+        # Echo the scripted prose through the same callback the real client uses, in
+        # chunks, so the offline suite exercises the streaming seam rather than a
+        # branch only a live model ever reaches.
+        if on_delta and action.message:
+            for index in range(0, len(action.message), 24):
+                on_delta(action.message[index:index + 24])
         return action
 
 
@@ -110,6 +128,123 @@ _SCHEMA_TEXT = (
 )
 
 
+class MessageScanner:
+    """Pulls the `message` field out of a JSON object while it is still arriving.
+
+    The model answers with one JSON object: {"tool": ..., "args": ..., "message": ...}.
+    Only `message` is prose a person should read as it is written; a half-parsed tool
+    name or argument is not a half-finished decision, it is noise, so it is never shown
+    until the object is complete.
+
+    This is a streaming *display* concern only. The Action handed back to the runtime is
+    the fully parsed object, unchanged: nothing here can approve, dispatch or decide
+    anything, and a truncated stream produces no Action at all.
+
+    The buffer is re-read rather than consumed blindly, because the JSON key can be split
+    across chunks: a stream that lands between `"mess` and `age"` must still find the
+    key, so the search position holds back a window instead of advancing past a prefix.
+    Text also arrives escaped, so `\"` and `\u20b9` are decoded here — slicing the raw
+    buffer would show backslashes and break on the first emoji.
+    """
+
+    __slots__ = ("_buf", "_i", "_in_message", "_escaping", "_hex", "_in_hex",
+                 "_done", "_count")
+
+    KEY = '"message"'
+
+    def __init__(self) -> None:
+        self._buf = ""
+        self._i = 0              # scan cursor in key-search mode
+        self._in_message = False
+        self._escaping = False
+        self._hex = ""           # digits of a pending \uXXXX
+        self._in_hex = False     # a separate flag: "" is falsy, so it cannot double as one
+        self._done = False
+        self._count = 0          # chars emitted so far
+
+    def feed(self, delta: str) -> str:
+        """Add a content delta; return only the newly readable message text."""
+        if not delta or self._done:
+            return ""
+        self._buf += delta
+        buf = self._buf
+        out: list[str] = []
+
+        while True:
+            if not self._in_message:
+                idx = buf.find(self.KEY, self._i)
+                if idx < 0:
+                    # Hold back len(KEY)-1 chars: a key straddling this boundary is
+                    # incomplete now and must still be findable on the next feed.
+                    self._i = max(self._i, len(buf) - (len(self.KEY) - 1))
+                    break
+                j = idx + len(self.KEY)
+                while j < len(buf) and buf[j] in " \t\r\n":
+                    j += 1
+                if j >= len(buf):                 # need the colon yet
+                    self._i = idx
+                    break
+                if buf[j] != ":":
+                    self._i = j + 1               # some other key; keep looking
+                    continue
+                j += 1
+                while j < len(buf) and buf[j] in " \t\r\n":
+                    j += 1
+                if j >= len(buf):                 # need the value yet
+                    self._i = idx
+                    break
+                if buf[j] == "n":                 # null: no message at all
+                    self._done = True
+                    break
+                if buf[j] != '"':
+                    self._i = j + 1
+                    continue
+                self._in_message = True
+                self._i = j + 1
+                continue
+
+            if self._i >= len(buf):
+                break
+            ch = buf[self._i]
+
+            if self._in_hex:
+                self._hex += ch
+                self._i += 1
+                if len(self._hex) == 4:
+                    try:
+                        out.append(chr(int(self._hex, 16)))
+                    except ValueError:
+                        out.append("\ufffd")
+                    self._hex = ""
+                    self._in_hex = False
+                continue
+
+            if self._escaping:
+                self._escaping = False
+                if ch == "u":
+                    self._hex = ""
+                    self._in_hex = True
+                else:
+                    out.append({"n": "\n", "t": "\t", "r": "\r", "b": "\b",
+                                "f": "\f", '"': '"', "\\": "\\", "/": "/"}.get(ch, ch))
+                self._i += 1
+                continue
+
+            if ch == "\\":
+                self._escaping = True
+                self._i += 1
+                continue
+            if ch == '"':                         # closing quote of the value
+                self._done = True
+                break
+            out.append(ch)
+            self._i += 1
+
+        text = "".join(out)
+        self._count += len(text)
+        return text
+
+
 class HttpLLMClient:
     """A real model over the wire, no SDK.
 
@@ -127,15 +262,23 @@ class HttpLLMClient:
         model: str,
         timeout: float = 30.0,
         temperature: float = 0.0,
+        stream: bool = True,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model = model
         self.timeout = timeout
         self.temperature = temperature
+        self.stream = stream
         self._ssl = _ssl_context()
 
-    def propose(self, prompt: str, *, state: str) -> Action:
+    def propose(
+        self,
+        prompt: str,
+        *,
+        state: str,
+        on_delta: Callable[[str], None] | None = None,
+    ) -> Action:
         # The state decides which tools are legal, so it must reach the model. Omitting
         # it left a real client guessing and made every legality refusal the client's
         # fault rather than the model's.
@@ -165,6 +308,7 @@ class HttpLLMClient:
             "- Never claim a booking succeeded; the runtime decides and reports that.\n"
             "- If a detail you need is missing, ask for it in `message`."
         )
+        streaming = on_delta is not None and self.stream
         payload = {
             "model": self.model,
             "temperature": self.temperature,
@@ -174,6 +318,8 @@ class HttpLLMClient:
             ],
             "response_format": {"type": "json_object"},
         }
+        if streaming:
+            payload["stream"] = True
         req = urllib.request.Request(
             f"{self.base_url}/chat/completions",
             data=json.dumps(payload).encode("utf-8"),
@@ -191,7 +337,10 @@ class HttpLLMClient:
         try:
             with urllib.request.urlopen(req, timeout=self.timeout,
                                         context=self._ssl) as resp:
-                raw = json.loads(resp.read().decode("utf-8"))
+                if streaming:
+                    raw = _read_stream(resp, on_delta)
+                else:
+                    raw = json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             raise LLMError(f"HTTP {exc.code}: {exc.reason}") from exc
         except urllib.error.URLError as exc:
@@ -204,6 +353,57 @@ class HttpLLMClient:
             return Action.from_dict(json.loads(content))
         except (KeyError, IndexError, json.JSONDecodeError, TypeError, ValueError) as exc:
             raise LLMError(f"malformed reply: {exc}") from exc
+
+
+def _read_stream(resp, on_delta: Callable[[str], None]) -> dict:
+    """Read an SSE reply, replay the message field to `on_delta`, return the object.
+
+    Reassembles the same JSON shape the non-streaming path returns, so parsing and the
+    one place an Action can be created stay single-path.
+
+    Falls back to a plain JSON body when the response contains no SSE frames. Some
+    gateways silently ignore `stream: true` and answer with a normal completion; a
+    client that assumed SSE would then see an empty reply and report a dead model for
+    what is really a proxy stripping a header.
+
+    A callback that raises is the caller's bug, but it must not destroy a live turn: the
+    text is a courtesy, the Action is the work. Callback failures are swallowed and
+    assembly continues.
+    """
+    scanner = MessageScanner()
+    content: list[str] = []
+    plain: list[str] = []
+    saw_frame = False
+    end_of_stream = "[" + "DONE" + "]"
+
+    for raw in resp:
+        line = raw.decode("utf-8", errors="replace")
+        plain.append(line)
+        stripped = line.strip()
+        if not stripped.startswith("data:"):
+            continue
+        saw_frame = True
+        chunk = stripped[5:].strip()
+        if chunk == end_of_stream:
+            break
+        try:
+            event = json.loads(chunk)
+            delta = event["choices"][0].get("delta") or {}
+        except (json.JSONDecodeError, KeyError, IndexError, TypeError):
+            continue                       # a keepalive or an unmodelled event
+        piece = delta.get("content")
+        if piece:
+            content.append(piece)
+            try:
+                text = scanner.feed(piece)
+                if text:
+                    on_delta(text)
+            except Exception:              # noqa: BLE001 - display must not sink the turn
+                pass
+
+    if not saw_frame:
+        return json.loads("".join(plain))
+    return {"choices": [{"message": {"content": "".join(content)}}]}
 
 
 def _ssl_context() -> ssl.SSLContext:
