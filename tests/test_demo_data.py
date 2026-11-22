@@ -18,6 +18,14 @@ from evals.demo_data import ANCHOR, build_world, load_fixture, slot_at
 
 FIXTURE = load_fixture()
 
+# G3: narration lives in its own file; the world file holds users, bookings,
+# reviews and the prior conversation only.
+import json as _json
+import pathlib as _pathlib
+
+_DIALOGUE_PATH = _pathlib.Path(__file__).resolve().parents[1] / "evals" / "fixtures" / "demo_dialogues.json"
+DIALOGUES = _json.loads(_DIALOGUE_PATH.read_text())["dialogues"]
+
 OUTCOME_TOKENS = {
     "booked", "booked_verified_after_timeout", "slot_taken", "slot_conflict",
     "hold_expired", "no_match", "unverified", "aborted_missing_details",
@@ -29,9 +37,10 @@ OUTCOME_TOKENS = {
 
 
 def test_fixture_parses_and_has_the_expected_sections():
-    for section in ("users", "bookings", "provider_reviews", "prior_conversation",
-                    "example_dialogues"):
+    for section in ("users", "bookings", "provider_reviews", "prior_conversation"):
         assert section in FIXTURE, section
+    assert "example_dialogues" not in FIXTURE, "narration belongs in demo_dialogues.json"
+    assert len(DIALOGUES) == 8
 
 
 def test_three_users_with_distinct_areas():
@@ -80,12 +89,12 @@ def test_slot_offsets_are_time_ordered_for_aldrin():
 
 
 def test_every_dialogue_has_a_valid_expected_outcome():
-    for ex in FIXTURE["example_dialogues"]:
+    for ex in DIALOGUES:
         assert ex["expected"]["outcome"] in OUTCOME_TOKENS, ex["id"]
 
 
 def test_every_dialogue_declares_at_least_one_invariant():
-    for ex in FIXTURE["example_dialogues"]:
+    for ex in DIALOGUES:
         assert ex["expected"]["invariants"], ex["id"]
 
 
@@ -93,13 +102,13 @@ def test_every_dialogue_invariant_name_is_real():
     """An invariant id in the fixture that the harness does not implement is a
     silent pass: the scenario would look green while asserting nothing."""
     known = {"I1", "I2", "I3", "I3b", "I4", "I5", "I6", "I7", "I8", "I9"}
-    for ex in FIXTURE["example_dialogues"]:
+    for ex in DIALOGUES:
         unknown = set(ex["expected"]["invariants"]) - known
         assert not unknown, f"{ex['id']} references {unknown}"
 
 
 def test_dialogues_alternate_and_start_with_the_user():
-    for ex in FIXTURE["example_dialogues"]:
+    for ex in DIALOGUES:
         turns = ex["turns"]
         assert turns[0]["role"] == "user", ex["id"]
         for a, b in zip(turns, turns[1:]):
@@ -107,7 +116,7 @@ def test_dialogues_alternate_and_start_with_the_user():
 
 
 def test_all_three_assignment_examples_are_covered():
-    examples = [ex.get("matches_assignment_example", "") for ex in FIXTURE["example_dialogues"]]
+    examples = [ex.get("matches_assignment_example", "") for ex in DIALOGUES]
     joined = " ".join(examples).lower()
     assert "plumber for my kitchen tap" in joined
     assert "move my ac servicing" in joined
@@ -225,7 +234,7 @@ def _providers() -> dict:
     return {p["id"]: p for p in json.loads(path.read_text())}
 
 
-@pytest.mark.parametrize("dialogue", FIXTURE["example_dialogues"], ids=lambda d: d["id"])
+@pytest.mark.parametrize("dialogue", DIALOGUES, ids=lambda d: d["id"])
 def test_dialogue_prices_match_the_provider_table(dialogue):
     """A dialogue quoting a price the provider table does not hold is a demo that
     lies on camera. Every `₹N` in the script must be a real price for a provider
@@ -251,7 +260,7 @@ def test_dialogue_prices_match_the_provider_table(dialogue):
     assert not unknown, f"{dialogue['id']} quotes prices that do not exist: {sorted(unknown)}"
 
 
-@pytest.mark.parametrize("dialogue", FIXTURE["example_dialogues"], ids=lambda d: d["id"])
+@pytest.mark.parametrize("dialogue", DIALOGUES, ids=lambda d: d["id"])
 def test_dialogue_provider_ids_exist(dialogue):
     providers = _providers()
     text = " ".join(t["text"] for t in dialogue["turns"])
@@ -260,7 +269,7 @@ def test_dialogue_provider_ids_exist(dialogue):
     assert not unknown, f"{dialogue['id']} references {sorted(unknown)}"
 
 
-@pytest.mark.parametrize("dialogue", FIXTURE["example_dialogues"], ids=lambda d: d["id"])
+@pytest.mark.parametrize("dialogue", DIALOGUES, ids=lambda d: d["id"])
 def test_dialogue_services_match_the_provider_they_name(dialogue):
     """If a script says 'plumber ... prov_06', prov_06 had better be a plumber."""
     providers = _providers()
@@ -296,7 +305,7 @@ def test_every_referenced_provider_has_reviews():
 def test_fixture_has_no_orphan_review_blocks():
     """A review block nothing references is dead data that will rot."""
     referenced = {b["provider_id"] for b in FIXTURE["bookings"]}
-    for dialogue in FIXTURE["example_dialogues"]:
+    for dialogue in DIALOGUES:
         text = " ".join(t["text"] for t in dialogue["turns"])
         referenced |= set(__import__("re").findall(r"prov_\d{2}", text))
     orphans = {k for k in FIXTURE["provider_reviews"] if not k.startswith("_")} - referenced

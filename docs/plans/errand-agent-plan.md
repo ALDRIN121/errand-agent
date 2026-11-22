@@ -76,7 +76,7 @@ exactly these cells.
 | 1 | types, clock, mock tools | determinism, probability, dedupe, dedupe-on-retry |
 | 2 | db, policy, approval, classify | policy matrix, digest, classify tables |
 | 3 | memory, history, context, trace | forget cascade, budget manifest |
-| 4 | llm, gateway, orchestrator, outcomes, harness | 37 collected, 33 green |
+| 4 | llm, gateway, orchestrator, outcomes, harness | 37 collected, 35 green |
 | 5 | cli, watcher, mock extension | 37/37 green incl. I3b and proactive |
 | 6 | deliverables | trace with no second `book` call |
 
@@ -413,10 +413,13 @@ only by `approval.py` (AST walk of `errand/`); (b) `len(SCENARIOS) == 37`;
 (c) `policy.State` has exactly the ten members listed above.
 
 **Gate — deliberately split so the order is buildable:** 37 scenarios collected, the
-33 with `needs == "core"` green, and `test_architecture` green. The 4 with
-`needs == "watcher"` are marked
-`@pytest.mark.skip(reason="phase 5: watcher and render-outcome assertions")` and
-become Phase 5's gate.
+35 with `needs == "core"` green, and `test_architecture` green. The 2 with
+`needs == "watcher"` (23 provider-cancels-replacement, 37 recovery-declined) are
+marked `@pytest.mark.skip(reason="phase 5: watcher")` and become Phase 5's gate.
+
+`I3b` (the templated terminal sentence) is assertable in Phase 4, not Phase 5,
+because `render_outcome` lives in `errand/outcomes.py` and not the CLI. That is why
+this gate is 35 rather than the 33 an earlier draft assumed.
 
 ## Phase 5 — CLI, watcher, and the mock extension they need
 
@@ -468,6 +471,105 @@ and that declining sets `recovery_declined_booking` and ends `cancelled`.
   `book → timeout`, `EXECUTING→VERIFYING`, a booked `get_booking_status`,
   `VERIFYING→TERMINAL`, and **zero** second `book` calls, asserted by
   `tests/test_trace_e2e.py::test_no_second_book_call`.
+
+
+---
+
+## Resolved design gaps (were blockers before Phase 4)
+
+Three questions the design left open. Each is decided here, with the mechanism and
+the reason, so the implementer writes code rather than inventing policy.
+
+### G1 — How `DISCOVERING` resolves an ambiguous reference
+
+**Decision: resolve by (service, status, slot-relationship), then ask; never guess.**
+
+`list_bookings(user_id)` returns rows ordered `slot.start` descending. The
+orchestrator applies this ladder and stops at the first rule that yields exactly
+one booking:
+
+| Step | Rule | Result |
+|---|---|---|
+| 1 | exactly one booking matches the service the user named | resolve to it |
+| 2 | the user named a provider id (`prov_NN`) | filter to that provider |
+| 3 | the user named a time ("Saturday", "tomorrow") | filter to that day |
+| 4 | `status == "confirmed"` only | if that leaves one, resolve |
+| 5 | more than one candidate remains | **ask**, naming each with date + status |
+
+Rule 4 is what makes "the same electrician as last time" work when a cancelled
+booking also exists: a cancelled booking is not "last time". Rule 5 is what makes
+scenario 32 (ambiguous reference) a question rather than a guess — two confirmed
+electrician bookings produce a clarifying turn and **no tool call at all**.
+
+The question text is templated, not model-written, for the same reason terminal
+sentences are:
+
+```text
+"You have {n} {service} bookings — {list}. Which do you mean?"
+# {list} = "prov_19 on Mon 09 Nov (confirmed), prov_20 on Fri 20 Nov (cancelled)"
+```
+
+Resolution also writes the chosen `booking_id` into the `PendingAction` before any
+approval is requested, so the reference the user approved is the reference that
+gets executed.
+
+### G2 — Whether the proactive path calls the model
+
+**Decision: no model call on the recovery path. It is rules plus one templated
+message.**
+
+The path must fire with no user turn present. A model there would add cost,
+latency and nondeterminism to the one place no human is watching, and the decision
+it would be making — "pick the best replacement inside known preferences" — is a
+sort, not a judgement:
+
+```text
+candidates = search(service   = cancelled.service,
+                    area      = memory.preferred_area or cancelled.area,
+                    window    = the cancelled booking's day, widened by one day,
+                    budget    = cancelled.price_paise * 1.10)
+rank       = (-rating, price_paise, id)          # rating first, then cheap, then stable
+best       = candidates[0] unless a `technician` preference pins one
+```
+
+The ranking key is fixed here for the same reason the tool contract is fixed: three
+plausible orderings (rating-first, price-first, preference-first) produce three
+different demos, and only one of them can be asserted. Technician preference wins
+over rating when it exists, because it is an explicit user statement and rating is
+a popularity proxy.
+
+The message is one template:
+
+```text
+"Your {service} on {date} was cancelled by {provider}. I found {replacement} at
+₹{price} on {slot} — shall I book it?"
+```
+
+and goes to the `outbox` table. `I8` (action attribution) is **not** applied to
+recovery turns, because no model action exists to attribute; the recovery run
+records `run_config.llm_mode = "none"` and the harness asserts that instead.
+
+### G3 — Relationship between the 8 demo dialogues and the 37 scenarios
+
+**Decision: the demo dialogues are the *human-readable script*; the 37 scenarios
+are the *assertion set*. They share fixtures, not definitions, and 11 scenarios
+reference a demo dialogue by id.**
+
+- `evals/fixtures/demo_data.json` is the world: users, bookings, reviews, the long
+  prior conversation. Both the demo and the harness load it.
+- `evals/fixtures/demo_dialogues.json` (split out of the above) is the narration:
+  the exact text a human reads on screen, used by `docs/DEMO.md` and by nothing
+  else. It is **not** asserted; if the agent's real output differs in wording, that
+  is fine, because the wording is not the contract.
+- `evals/scenarios.py` is the machine script: for each of the 37, the scenario
+  name, seed, user turn texts, scripted `Action` sequence and expected token.
+
+The 11 scenarios that correspond to a demo dialogue carry `dialogue_id`, so the
+harness can assert "the run that the demo shows is one of the runs that passed"
+without binding the assertion to prose. The other 26 exist only in the harness.
+
+This split is what stops the demo from becoming the test: a demo that drifts in
+wording still passes, and a scenario that regresses still fails.
 
 ## Cut list, in order
 

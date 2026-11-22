@@ -20,6 +20,7 @@ from errand.tools.mock import MockToolServer
 from errand.types import Booking, Review, Slot
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "demo_data.json"
+DIALOGUES = Path(__file__).resolve().parent / "fixtures" / "demo_dialogues.json"
 ANCHOR = datetime(2026, 11, 23, 0, 0, tzinfo=IST)  # a Monday
 
 
@@ -48,6 +49,10 @@ class DemoWorld:
 
 def load_fixture(path: Path = FIXTURE) -> dict:
     return json.loads(Path(path).read_text())
+
+
+def load_dialogues(path: Path = DIALOGUES) -> list[dict]:
+    return json.loads(Path(path).read_text())["dialogues"]
 
 
 def slot_at(day_offset: int, hour: int) -> Slot:
@@ -167,6 +172,6 @@ def build_world(
         memory=memory,
         history=history,
         users=users,
-        dialogues=data.get("example_dialogues", []),
+        dialogues=load_dialogues(),
         reviews=reviews,
     )
