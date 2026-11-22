@@ -236,4 +236,63 @@ class WebSearch:
         return hits
 
 
-__all__ = ["WebSearch", "detect_injection", "SearchHit"]
+@dataclass
+class MockWebSearch:
+    """A deterministic backend for tests and the offline demo.
+
+    Same interface as `WebSearch`, no socket. It exists so the suite can prove what
+    the *agent* does with results — containment, the resume path, the reply — without
+    a network call that makes a fixture flaky and a result unpinnable.
+
+    Matching is a plain case-insensitive substring test against each hit's text. It is
+    deliberately dumb: a cleverer matcher would be a second thing to debug, and the
+    property under test is never "did the search rank well".
+    """
+
+    hits: list[SearchHit] = field(default_factory=list)
+    provider: str = field(default="mock", init=False)
+    queries: list[str] = field(default_factory=list, init=False)
+    # When True, `search` raises a transient error — the "search is down" path.
+    failing: bool = False
+
+    def available(self) -> bool:
+        return True
+
+    def search(self, query: str, *, limit: int = 5) -> list[SearchHit]:
+        self.queries.append(query)
+        if self.failing:
+            raise ToolError("transient", "mock search backend is down")
+        terms = [w for w in query.lower().replace(",", " ").split() if len(w) > 2]
+        if not terms:
+            return list(self.hits[:limit])
+        scored = []
+        for index, hit in enumerate(self.hits):
+            hay = f"{hit.title} {hit.snippet} {hit.url}".lower()
+            score = sum(1 for term in terms if term in hay)
+            if score:
+                scored.append((-score, index, hit))
+        scored.sort(key=lambda row: (row[0], row[1]))
+        return [hit for _, _, hit in scored[:limit]]
+
+
+def hits_from(rows) -> list[SearchHit]:
+    """Build typed hits from `(title, url, snippet)` tuples or dicts.
+
+    One place that knows the shape, so a scenario or fixture cannot introduce a hit
+    that bypasses the untrusted-only constructor.
+    """
+    out: list[SearchHit] = []
+    for row in rows or ():
+        if isinstance(row, SearchHit):
+            out.append(row)
+        elif isinstance(row, dict):
+            out.append(SearchHit(title=str(row.get("title", "")),
+                                 url=str(row.get("url", "")),
+                                 snippet=str(row.get("snippet", ""))))
+        else:
+            title, url, snippet = row
+            out.append(SearchHit(title=str(title), url=str(url), snippet=str(snippet)))
+    return out
+
+
+__all__ = ["WebSearch", "MockWebSearch", "hits_from", "detect_injection", "SearchHit"]

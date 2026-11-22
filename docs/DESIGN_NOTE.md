@@ -97,10 +97,10 @@ statement and leaves "a model drove this run" unevidenced.
 |---|---|
 | States | 11 |
 | Terminal tokens | 13 |
-| Scenarios | 37 (37 pass) |
+| Scenarios | 40 (40 pass) |
 | Invariants | 11 (100%) |
 | Runtime dependencies | 0 |
-| Source / test lines | 4,727 / 3,450 |
+| Source / test lines | 4,810 / 3,522 |
 
 ## Web search is read-only, which is what makes it safe
 

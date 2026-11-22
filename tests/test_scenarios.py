@@ -1,7 +1,7 @@
 """Guards on the scenario set itself.
 
 `evals/scenarios.py` is the assertion set for the whole project, so its own shape
-needs checking before any agent code runs: 37 scenarios, contiguous ids, valid
+needs checking before any agent code runs: 40 scenarios, contiguous ids, valid
 expected tokens, and every outcome token exercised by at least one scenario.
 """
 from __future__ import annotations
@@ -24,12 +24,12 @@ MOCK_SCENARIOS = {
 }
 
 
-def test_exactly_37_scenarios():
-    assert len(SCENARIOS) == 37
+def test_exactly_40_scenarios():
+    assert len(SCENARIOS) == 40
 
 
 def test_ids_are_contiguous_from_one():
-    assert [s.id for s in SCENARIOS] == list(range(1, 38))
+    assert [s.id for s in SCENARIOS] == list(range(1, 41))
 
 
 def test_names_are_unique():
@@ -108,10 +108,11 @@ def test_every_dialogue_link_resolves():
 
 def test_scripted_actions_name_only_real_tools_or_nothing():
     """A typo in a tool name would silently script a no-op."""
-    allowed = {
-        "search_providers", "get_provider", "hold_slot", "book",
-        "get_booking_status", "cancel", "reschedule", "list_bookings", None,
-    }
+    # Derived, not hand-written: a hand-maintained copy of the contract is the thing
+    # that drifts. web_search was added to the contract and this gate caught it.
+    from errand.policy import CONTRACT_TOOLS
+
+    allowed = set(CONTRACT_TOOLS) | {None}
     for s in SCENARIOS:
         flat = [a for spec in s.scripted for a in (spec if isinstance(spec, list) else [spec])]
         for action in flat:

@@ -24,7 +24,7 @@ def numbers():
 
 
 def test_the_code_counts_are_self_consistent(numbers):
-    assert numbers["scenarios"] == 37
+    assert numbers["scenarios"] == 40
     assert numbers["invariants"] == 11
     # ten booking states plus RESEARCHING, the read-only web lookup
     assert numbers["states"] == 11

@@ -92,8 +92,17 @@ def actions_for(scenario: Scenario, world=None) -> list:
 
 def run_scenario(scenario: Scenario, trace_dir: Path | None = None) -> RunResult:
     clock = FakeClock(ANCHOR.replace(hour=8))
+    # Offline by default. A scenario that wants search declares its results, and the
+    # backend is a fixture rather than a socket: a suite that reaches the network is
+    # not deterministic, and its failures stop meaning anything.
+    web = None
+    if not scenario.web_off:
+        from errand.tools.websearch import MockWebSearch, hits_from
+
+        web = MockWebSearch(hits=hits_from(scenario.web_hits),
+                            failing=scenario.web_fails)
     world = build_world(clock, seed=scenario.seed, scenario=scenario.scenario,
-                        user_id=scenario.user_id)
+                        user_id=scenario.user_id, web=web)
     trace_path = (trace_dir / f"scenario_{scenario.id:02d}.jsonl") if trace_dir else None
     tracer = Tracer(trace_path) if trace_path else None
 

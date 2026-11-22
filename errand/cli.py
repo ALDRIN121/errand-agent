@@ -26,7 +26,23 @@ from errand.memory import MemoryStore
 from errand.orchestrator import Orchestrator
 from errand.outcomes import render_outcome
 from errand.tools.mock import MockToolServer
-from errand.tools.websearch import WebSearch
+from errand.tools.websearch import MockWebSearch, WebSearch, hits_from
+
+# Canned results for `--mock-web`. Inline and short on purpose: this is a fixture, not
+# content, and every field is visibly fake so nobody mistakes it for a live lookup.
+_DEMO_WEB = (
+    ("Plumber charges in Bangalore",
+     "https://example.test/plumber-charges",
+     "A tap repair typically costs Rs 400-900 in Bangalore; inspection Rs 200-300. "
+     "These are illustrative figures for a demo, not a quote."),
+    ("Koramangala plumbers, same-day service",
+     "https://example.test/koramangala-plumbers",
+     "Several services cover Koramangala with same-day slots and a 30-day warranty."),
+    ("How to check a plumber's reputation",
+     "https://example.test/check-a-plumber",
+     "Ask for the firm's GST number, read recent reviews, and confirm the price "
+     "before work starts."),
+)
 from errand.trace import Tracer
 from errand.watcher import Watcher
 from evals.demo_data import ANCHOR, build_world
@@ -47,9 +63,15 @@ def build(args) -> tuple[Orchestrator, Watcher, Tracer | None, Database]:
 
     clock = FakeClock(ANCHOR.replace(hour=8)) if args.seed is not None else RealClock()
 
-    # The search backend is real in both modes: it is read-only, costs nothing, and a
-    # model that cannot look anything up will invent an answer instead.
-    web = None if args.no_web else WebSearch(tracer=tracer)
+    # The search backend is read-only, costs nothing, and a model that cannot look
+    # anything up tends to invent an answer instead. Real by default; `--mock-web`
+    # swaps in canned results so a demo works with the network unplugged.
+    if args.no_web:
+        web = None
+    elif args.mock_web:
+        web = MockWebSearch(hits=hits_from(_DEMO_WEB))
+    else:
+        web = WebSearch(tracer=tracer)
 
     world = build_world(clock, seed=args.seed or 7, scenario=args.scenario,
                         user_id=args.user,
@@ -131,6 +153,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="start with no prior conversation history (clean slate)")
     parser.add_argument("--no-web", action="store_true",
                         help="disable web_search (it is on by default, no key needed)")
+    parser.add_argument("--mock-web", action="store_true",
+                        help="use a canned search backend: no network, deterministic")
     args = parser.parse_args(argv)
 
     try:

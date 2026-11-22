@@ -249,3 +249,74 @@ def test_no_hits_is_reported_as_a_search_result_not_a_booking_problem(tmp_path):
         assert "found nothing" in (result.reply or "").lower()
     finally:
         tracer.close(); world.close()
+
+
+# --------------------------------------------------------- the offline backend
+
+
+def test_mock_search_needs_no_network():
+    """The suite must be deterministic; a socket in it makes failures meaningless."""
+    from errand.tools.websearch import MockWebSearch, hits_from
+
+    web = MockWebSearch(hits=hits_from((
+        ("Plumber rates", "https://example.test/r", "Tap repair Rs 400-900"),
+        ("Electrician rates", "https://example.test/e", "Socket repair Rs 300"),
+    )))
+    # "rates" appears in both, so both match; the one matching more terms ranks first.
+    hits = web.search("plumber rates")
+    assert hits[0].title == "Plumber rates"
+    assert web.provider == "mock"
+    # a query matching one hit returns only that hit
+    assert [h.title for h in web.search("electrician")] == ["Electrician rates"]
+
+
+def test_mock_search_is_repeatable():
+    from errand.tools.websearch import MockWebSearch, hits_from
+
+    rows = (("A", "https://example.test/a", "alpha"), ("B", "https://example.test/b", "beta"))
+    one, two = MockWebSearch(hits=hits_from(rows)), MockWebSearch(hits=hits_from(rows))
+    assert [h.title for h in one.search("alpha beta")] == \
+           [h.title for h in two.search("alpha beta")]
+
+
+def test_mock_search_can_fail_on_purpose():
+    from errand.tools.websearch import MockWebSearch, hits_from
+
+    from errand.types import ToolError
+
+    web = MockWebSearch(hits=hits_from(()), failing=True)
+    with pytest.raises(ToolError) as caught:
+        web.search("anything")
+    assert caught.value.error_class == "transient"
+
+
+def test_hits_from_rejects_nothing_silently():
+    """A malformed fixture row must fail loudly, not become an empty hit."""
+    from errand.tools.websearch import hits_from
+
+    assert hits_from((("T", "https://x.test", "s"),))[0].title == "T"
+    with pytest.raises(Exception):
+        hits_from((("only-one-field",),))
+
+
+def test_every_offline_scenario_declares_its_search_results():
+    """A scenario that wants search must pin what it finds, or the suite drifts."""
+    from evals.scenarios import SCENARIOS
+
+    for scenario in SCENARIOS:
+        if scenario.web_off:
+            continue
+        assert scenario.web_hits or scenario.web_fails, (
+            f"scenario {scenario.id} enables search but declares no results"
+        )
+
+
+def test_no_offline_scenario_reaches_the_network():
+    """`web_off=True` means no backend at all, which is the default for every scenario."""
+    from evals.scenarios import SCENARIOS
+
+    with_web = [s.id for s in SCENARIOS if not s.web_off]
+    assert with_web, "at least one scenario should exercise search"
+    for scenario in SCENARIOS:
+        if scenario.web_off:
+            assert not scenario.web_hits, scenario.id
