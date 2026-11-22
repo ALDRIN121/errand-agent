@@ -113,7 +113,8 @@ def test_scripted_actions_name_only_real_tools_or_nothing():
         "get_booking_status", "cancel", "reschedule", "list_bookings", None,
     }
     for s in SCENARIOS:
-        for action in s.scripted:
+        flat = [a for spec in s.scripted for a in (spec if isinstance(spec, list) else [spec])]
+        for action in flat:
             assert action["tool"] in allowed, f"{s.id}: {action['tool']}"
 
 

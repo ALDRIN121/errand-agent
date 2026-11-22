@@ -57,13 +57,34 @@ def normalise(text: str) -> str:
     return t
 
 
+_DETAIL_WORDS = frozenset({
+    "morning", "mornings", "afternoon", "afternoons", "evening", "evenings",
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+    "tomorrow", "today", "weekend", "weekday", "weekdays", "week", "next",
+    "cheaper", "cheapest", "earlier", "later", "instead", "change", "actually",
+})
+
+
 def has_new_constraint(text: str) -> bool:
-    """A new time, amount or explicit provider reference is a change, not a yes.
+    """A new time, amount, day or amended detail is a change, not a yes.
 
     The amount pattern matters: "yes, if it's under 2000" must not approve a
-    ₹4,999 booking.
+    ₹4,999 booking. The detail words matter for the other direction: "make it
+    mornings, not afternoons" contains a negation but is an amendment, and
+    treating it as a refusal ended a live approval.
     """
-    return bool(_CLOCK_TIME.search(text) or _AMOUNT.search(text))
+    if _CLOCK_TIME.search(text) or _AMOUNT.search(text):
+        return True
+    return bool(set((text or "").lower().split()) & _DETAIL_WORDS)
+
+
+def _is_bare_negation(norm: str) -> bool:
+    """A refusal with nothing else in it: "no", "no thanks", "don't".
+
+    "No, not afternoons" is an amendment; "No, find someone else" is a refusal.
+    The distinguishing feature is whether any non-filler content accompanies it.
+    """
+    return set(norm.split()) <= (NEGATE | _FILLER)
 
 
 def classify(reply: str) -> Verdict:
@@ -73,12 +94,14 @@ def classify(reply: str) -> Verdict:
 
     norm = normalise(raw)
     tokens = set(norm.split())
+    # An amendment is checked first: "mornings, not afternoons" and "not before
+    # 10am" both contain a negation token but change a detail rather than answering.
+    if has_new_constraint(raw) and not _is_bare_negation(norm):
+        return "other"
     # multi-word negations ("hold on", "do not") survive normalise, so check both
     if tokens & NEGATE or any(p in norm for p in ("hold on", "do not", "don't")):
         return "deny"
     if "?" in raw or "?" in norm:
-        return "other"
-    if has_new_constraint(raw):
         return "other"
     if norm in AFFIRM:
         return "affirm"
