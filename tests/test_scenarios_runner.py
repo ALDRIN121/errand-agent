@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 from evals.harness import CHECKS, evaluate
-from evals.scenarios import CORE, WATCHER
+from evals.scenarios import CORE, SCENARIOS, WATCHER
 
 
 @pytest.mark.parametrize("scenario", CORE, ids=lambda s: f"{s.id:02d}-{s.name[:30]}")
@@ -24,9 +24,22 @@ def test_core_scenario_passes(scenario):
 
 
 @pytest.mark.parametrize("scenario", WATCHER, ids=lambda s: f"{s.id:02d}-{s.name[:30]}")
-def test_watcher_scenarios_are_deferred_not_forgotten(scenario):
-    """Phase 5 owns these. Skipping them by name keeps the debt visible."""
-    pytest.skip("phase 5: watcher")
+def test_watcher_scenario_passes(scenario):
+    """Phase 5 gate: the unattended path, run through the same harness."""
+    report = evaluate(scenario, include_watcher=True)
+    assert not report.result.error, f"crashed: {report.result.error}"
+    assert report.outcome_ok, (
+        f"got {report.result.outcome!r}, expected {sorted(scenario.expected)}; "
+        f"tools were {report.result.tool_calls}"
+    )
+
+
+def test_the_gate_is_now_37_of_37():
+    """Phase 5 closes the two the Phase 4 gate deferred."""
+    reports = [evaluate(s, include_watcher=True) for s in SCENARIOS]
+    assert len(reports) == 37
+    failing = [r.scenario.id for r in reports if not r.outcome_ok]
+    assert not failing, f"scenarios not reaching an expected token: {failing}"
 
 
 def test_all_ten_invariants_are_implemented():

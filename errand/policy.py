@@ -58,8 +58,10 @@ LEGAL: dict[State, frozenset[str]] = {
 TRANSITIONS: dict[State, frozenset[State]] = {
     # SELECTING is reachable from NEW because a user may name a provider outright
     # ("book prov_06 for tomorrow"); no search is needed to know the candidate.
+    # AWAITING_APPROVAL is reachable from NEW because an unattended provider-cancel
+    # event can raise a recovery offer before the user has said anything at all.
     State.NEW: frozenset({State.CLARIFYING, State.DISCOVERING, State.SEARCHING,
-                          State.SELECTING, State.TERMINAL}),
+                          State.SELECTING, State.AWAITING_APPROVAL, State.TERMINAL}),
     State.CLARIFYING: frozenset({State.SEARCHING, State.DISCOVERING, State.TERMINAL}),
     # SELECTING is reachable from DISCOVERING: a reschedule needs the *target* slot
     # held before the user can be asked to approve the move.

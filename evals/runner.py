@@ -18,6 +18,7 @@ from errand.llm import Action, ScriptedLLM
 from errand.memory import MemoryStore
 from errand.orchestrator import Orchestrator, TurnResult
 from errand.trace import Tracer, read_trace
+from errand.watcher import Watcher
 from errand.types import Slot
 from evals.demo_data import ANCHOR, build_world
 from evals.scenarios import Scenario
@@ -108,6 +109,14 @@ def run_scenario(scenario: Scenario, trace_dir: Path | None = None) -> RunResult
             user_id=scenario.user_id,
         )
 
+        watcher = Watcher(server=world.server, orchestrator=orch, db=world.db,
+                          clock=clock, tracer=tracer)
+        for body in watcher.tick():  # start-up tick: events raised while "down"
+            if tracer:
+                tracer.emit("proactive_delivered", body_chars=len(body))
+        for body in watcher.pending():
+            watcher.deliver(body["id"])
+
         restart_idx = None
         if scenario.restart_at:
             turn_part, idx_part = scenario.restart_at.split(":")
@@ -131,6 +140,11 @@ def run_scenario(scenario: Scenario, trace_dir: Path | None = None) -> RunResult
                     user_id=scenario.user_id, session_id="s_1",
                 )
             result.turns.append(orch.handle_turn(text))
+            for body in watcher.tick():
+                if tracer:
+                    tracer.emit("proactive_delivered", body_chars=len(body))
+            for row in watcher.pending():
+                watcher.deliver(row["id"])
 
         orch.finish()  # a session left alive at end of script is the user walking away
         result.outcome = orch.session.outcome

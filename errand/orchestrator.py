@@ -17,6 +17,7 @@ sentences, so it cannot invent a constraint the user did not state.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
@@ -99,6 +100,7 @@ class Orchestrator:
         self.pending: PendingAction | None = None
         self.candidates: list = []
         self.last_choice: Any = None
+        self.action_attribution: list[dict] = []
 
     # ------------------------------------------------------------------ session
 
@@ -199,6 +201,14 @@ class Orchestrator:
                 return self._on_affirm()
             if verdict == "deny" and not has_new_constraint(user_text):
                 self.approvals.invalidate(self.session.id, "user declined")
+                # Declining a *recovery offer* leaves the original booking cancelled
+                # and books nothing: that is `cancelled`, not "abandoned", because the
+                # user answered the question rather than walking away.
+                if self.session.slots.get("cancelled_booking"):
+                    self.session.recovery_declined = self.session.slots["cancelled_booking"]
+                    self.pending, self.hold = None, None
+                    self._terminal("cancelled")
+                    return self._result(None, None)
                 self.pending, self.hold = None, None
                 # A declined approval ends the request. Returning to SELECTING would
                 # keep a session alive that the user has just told us to stop, and
@@ -249,7 +259,6 @@ class Orchestrator:
 
     def finish(self) -> None:
         """Close a session the script left alive.
-
         A run whose conversation simply stops is the user walking away, and that has
         its own token. Without this, `abandoned_by_user` was declared in the
         vocabulary and unreachable in practice, and every scenario ending on a
@@ -389,6 +398,7 @@ class Orchestrator:
     def _dispatch(self, action: Action) -> TurnResult:
         """Send an already-admitted action through the gateway."""
         name = action.tool or ""
+        self._attribute(name, action.args)
         result = self.gateway.call(
             self.session.state, name, action.args,
             approval_kind=self.pending.kind if self.pending else None,
@@ -613,6 +623,7 @@ class Orchestrator:
 
     def _execute_approved(self, action: Action) -> TurnResult:
         name = action.tool or ""
+        self._attribute(name, action.args)
         live = self.pending
         if live is None or live.kind != name:
             msg = "Nothing is held for me to do that. Confirm the details and I will ask again."
@@ -682,12 +693,15 @@ class Orchestrator:
             # emitted no side_effect_ok: the booking exists, the run claimed success,
             # and the trace had no record of it. Emit the confirmation explicitly.
             if self.tracer:
+                tool = (self.pending.kind if self.pending else None) or "book"
                 self.tracer.emit(
                     "side_effect_ok",
-                    tool=self.session.outcome_verb or "book",
+                    tool=tool,
                     booking_id=status.get("booking_id"),
                     verified=True,
                 )
+            if self.session.outcome_verb is None and self.pending is not None:
+                self.session.outcome_verb = self.pending.kind
             self._terminal("booked_verified_after_timeout", verb=self.session.outcome_verb)
             self.session.slots["reference"] = status.get("booking_id")
         elif state == "not_booked":
@@ -723,17 +737,141 @@ class Orchestrator:
         )
         return f"You have {len(pool)} {wanted or 'matching'} bookings - {listed}. Which do you mean?"
 
+    def _attribute(self, tool: str, args: dict) -> None:
+        """I8: record that this call came from a model action, with a hash.
+
+        The gateway already refuses illegal tools, but nothing until now proved the
+        run was *driven* rather than hard-coded. The harness compares consecutive
+        (tool, args_hash) pairs against what the client returned.
+        """
+        import hashlib
+
+        payload = json.dumps(args, sort_keys=True, default=str, separators=(",", ":"))
+        digest = hashlib.sha256(payload.encode()).hexdigest()[:16]
+        self.action_attribution.append({"tool": tool, "args_hash": digest, "state": self.session.state.value})
+        if self.tracer:
+            self.tracer.emit("action_attributed", tool=tool, args_hash=digest,
+                             state=self.session.state.value)
+
+
+    # ------------------------------------------------------- unattended events (G2)
+
+    def handle_event(self, kind: str, **payload: Any) -> dict[str, Any]:
+        """React to a system event with no user turn present.
+
+        G2: no model call. Picking a replacement inside known preferences is a sort,
+        not a judgement, and a model here would add cost and nondeterminism to the
+        one path no human is watching. The run records `llm_mode="none"` so the
+        absence of a model call is auditable rather than assumed.
+
+        Returns the message queued for the user; the watcher owns delivery.
+        """
+        if kind != "provider_cancel":
+            raise ValueError(f"unknown event kind {kind!r}")
+
+        booking_id = payload.get("booking_id")
+        if not booking_id:
+            raise ValueError("provider_cancel needs a booking_id")
+
+        if self.tracer:
+            self.tracer.emit("event_received", kind=kind, booking_id=booking_id,
+                             llm_mode="none")
+
+        cancelled = next(
+            (b for b in self.server.list_bookings(self.session.user_id)
+             if b.booking_id == booking_id), None
+        )
+        if cancelled is None:
+            return {"status": "ignored", "reason": "booking not found"}
+
+        self.session.slots["cancelled_booking"] = booking_id
+        replacement = self._find_replacement(cancelled)
+
+        if replacement is None:
+            self.session.slots["reason"] = (
+                f"{cancelled.provider_id} cancelled your {cancelled.service} on "
+                f"{cancelled.slot.start:%a %d %b} and I found no replacement."
+            )
+            self._terminal("no_match")
+            body = self._sentence() or ""
+            return {"status": "no_replacement", "body": body}
+
+        provider, slot = replacement
+        self.hold = self.server.hold_slot(provider.id, slot)
+        pending = PendingAction(
+            kind="book",
+            provider_id=self.hold.provider_id,
+            service=cancelled.service,
+            slot_start=self.hold.slot.start,
+            slot_end=self.hold.slot.end,
+            price_paise=self.hold.quote_paise,
+            attempt=0,
+        )
+        self.pending = pending
+        body = (
+            f"Your {cancelled.service} on {cancelled.slot.start:%a %d %b} was cancelled "
+            f"by {cancelled.provider_id}. I found {provider.id} at "
+            f"Rs {self.hold.quote_paise // 100:,} on "
+            f"{slot.start:%a %d %b %H:%M} - shall I book it?"
+        )
+        self.approvals.request(self.session.id, pending, body)
+        if self.session.state is not State.AWAITING_APPROVAL:
+            self._transition(State.AWAITING_APPROVAL)
+        if self.tracer:
+            self.tracer.emit("recovery_offered", booking_id=booking_id,
+                             replacement=provider.id, digest=pending.digest()[:12])
+        return {"status": "offered", "body": body, "replacement": provider.id}
+
+    def _find_replacement(self, cancelled) -> tuple[Any, Any] | None:
+        """G2's ranking, in one place: (-rating, price, id), preference over rating.
+
+        Technician preference beats rating when one exists, because it is an explicit
+        user statement and rating is a popularity proxy.
+        """
+        pinned = {
+            m.key: m.value for m in self.memory.admissible(self.session.user_id)
+        }.get("preferred_technician")
+
+        candidates = [
+            p for p in self.server.search_providers(
+                service=cancelled.service, area=cancelled.area
+            )
+            if p.id != cancelled.provider_id
+        ]
+        if not candidates:
+            return None
+
+        slot_for = lambda p: next(
+            (s for s in p.slots if s.available and s.start.date() >= cancelled.slot.start.date()),
+            None,
+        )
+        with_slot = [(p, s) for p in candidates if (s := slot_for(p)) is not None]
+        if not with_slot:
+            return None
+
+        if pinned:
+            chosen = next((pair for pair in with_slot if pair[0].id == pinned), None)
+            if chosen is not None:
+                return chosen
+
+        with_slot.sort(key=lambda pair: (-pair[0].rating, pair[0].price_paise, pair[0].id))
+        return with_slot[0]
+
     # -------------------------------------------------------------------- renders
 
     def _sentence(self) -> str | None:
         if self.session.outcome is None:
             return None
         action = self.pending
+        reference = (
+            self.session.slots.get("reference")
+            or self.session.recovery_declined
+        )
         return render_outcome(
             self.session.outcome,
             OutcomeContext(
                 action=action,
-                reference=self.session.slots.get("reference"),
+                reference=reference,
                 reason=self.session.slots.get("reason"),
             ),
         )

@@ -12,7 +12,15 @@ from typing import Any
 
 _TRUNCATE = 2000
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
-_SECRET = re.compile(r"(?i)(key|token|secret|password)")
+# Deliberately specific. A substring match on "token" redacted the context-budget
+# *count* under the key `tokens`, which is exactly the evidence the manifest exists
+# to record. `idempotency_key` is a deterministic public identifier the dedupe
+# assertion reads, so it is not a secret either.
+_SECRET = re.compile(
+    r"(?i)^(api[_-]?key|access[_-]?key|secret[_-]?key|client[_-]?secret|"
+    r"password|passwd|authorization|auth[_-]?header|bearer|cookie|session[_-]?token|"
+    r"access[_-]?token|refresh[_-]?token)$"
+)
 
 
 def sanitize(value: Any, truncated: bool = True) -> Any:
@@ -48,7 +56,9 @@ class Tracer:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._seq = 0
-        self._fh = self.path.open("a", encoding="utf-8")
+        # One trace file is one run. Appending silently duplicated every event when a
+        # scenario was re-run, which made the excerpt unusable.
+        self._fh = self.path.open("w", encoding="utf-8")
 
     def emit(self, type: str, **fields: Any) -> dict:
         self._seq += 1

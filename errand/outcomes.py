@@ -26,6 +26,7 @@ OUTCOMES = (
     "aborted_missing_details",
     "tool_failure",
     "abandoned_by_user",
+    "cancelled",
     "budget_turns",
     "budget_tools",
 )
@@ -137,6 +138,16 @@ def render_outcome(token: str, ctx: OutcomeContext | None = None) -> str:
 
     if token == "abandoned_by_user":
         return f"Stopped at your request. Nothing has been booked or charged."
+
+    if token == "cancelled":
+        # A distinct token from `abandoned_by_user`: the user answered our offer and
+        # declined it, so the original cancellation stands and nothing new was booked.
+        if ctx.reference:
+            return (
+                f"Left it as it is: booking {ctx.reference} stays cancelled and I have "
+                f"not booked anything else."
+            )
+        return "Left it as it is: the cancellation stands and nothing new has been booked."
 
     if token == "budget_turns":
         return (
