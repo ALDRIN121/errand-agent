@@ -73,7 +73,10 @@ def test_every_scenario_appears_in_the_generated_table(numbers):
 
 
 def test_the_trace_excerpt_matches_the_trace_it_quotes():
-    trace = ROOT / "traces" / "scenario_09.jsonl"
+    # The trace the repository ships, not a local run: `traces/` is gitignored because
+    # every run writes there, so a test pointed at it passes on the author's machine and
+    # fails on a fresh clone. CI caught exactly that.
+    trace = ROOT / "docs" / "trace_timeout_after_success.jsonl"
     doc = ROOT / "docs" / "TRACE_EXCERPT.md"
     assert trace.exists() and doc.exists()
     events = [line for line in trace.read_text().splitlines() if line.strip()]
