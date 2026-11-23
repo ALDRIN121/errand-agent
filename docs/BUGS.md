@@ -336,3 +336,53 @@ model's raw JSON at the user, one escaped fragment at a time.
 
 **Test.** `tests/test_streaming.py` — 12 tests, including every split boundary and a
 malformed-escape path.
+
+
+---
+
+## Bug 13 — "move my AC servicing to Saturday" could not work, and a spoofed `user_id` read another customer's bookings
+
+The assignment's own example request failed end to end. It surfaced as
+`TypeError: MockToolServer.list_bookings() missing 1 required positional argument:
+'user_id'`, wrapped as "A service call failed, so nothing was booked."
+
+**Fault 1 — the prompt and the contract disagreed.** `_SCHEMA_TEXT` tells the model
+`- list_bookings: no arguments`. The server required `user_id`. A model obeying its
+instructions sent `{}`, the gateway forwarded it verbatim, and the call raised
+`TypeError` at the server boundary. Every manage request — cancel, reschedule, "the
+same electrician as last time" — was unreachable in the live path, because `DISCOVERING`
+is the only state where `list_bookings` is legal and that call always arrived empty.
+
+**Fault 2 — a cross-tenant read.** The same forwarding meant the server trusted whatever
+`user_id` was supplied. `{"user_id": "u_priya"}` on `u_aldrin`'s session returned
+`bk_1005`, Priya's booking. The tool is read-only, which is why nobody had asked what it
+was reading *for*, but a `list_bookings` that answers for an arbitrary customer is a
+disclosure bug regardless of what it can write.
+
+**Fault 3 — a booking with no reachable owner.** `_make_booking` hardcoded
+`user_id="u_local"`, so a booking created in a session was invisible to
+`list_bookings` for the person who made it. Fixing only faults 1 and 2 would still have
+left "move the booking I just made" unable to find anything.
+
+**The fix.** Identity is the session's fact, never the model's. `SESSION_BOUND` names
+`user_id` as a key the model may not supply; the gateway strips it from the arguments,
+runs the usual unexpected-key check on the remainder, and injects the session's value at
+dispatch. So `{}` and `{"user_id": "someone_else"}` are indistinguishable to the server,
+and both answer for the current customer. `Hold` now carries the owner, holds are deduped
+per customer, and a booking inherits its hold's owner.
+
+**Why 527 tests passed on the broken code.** `evals/scenarios.py` had
+`listed()` returning `{"user_id": "u_aldrin"}`. The script handed the server exactly the
+argument the prompt forbids, so the signature was always satisfied and the empty call a
+real model makes was never exercised. The fixture documented the bug rather than
+catching it. `listed()` now sends no arguments.
+
+**Regression test.** `tests/test_session_identity.py` — six tests: the bare call
+succeeds, a spoofed `user_id` still answers for this session, an unknown argument is
+still refused, a new booking belongs to its maker and not to another customer, holds are
+scoped to their owner, and the schema text keeps saying "no arguments". Reverting the
+injection reproduces the original `TypeError` exactly.
+
+**Lesson.** A mock that accepts the arguments *the fixture* passes proves the signature
+is satisfiable, not that the contract a real caller is given is usable. The system prompt
+and the tool signature are two halves of one contract, and nothing compared them.

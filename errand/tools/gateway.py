@@ -25,9 +25,22 @@ from errand.trace import Tracer
 from errand.types import Slot, ToolError
 
 
-# Argument names each tool accepts, derived from the server so the contract cannot
-# drift from the implementation.
+# Arguments the server needs but that are not the model's to supply. Which user a
+# request belongs to is the session's fact, never the model's: it is removed from the
+# model-facing contract before the unexpected-key check and injected at dispatch, so
+# `{}` and `{"user_id": "someone_else"}` are indistinguishable to the server. Without
+# this, `list_bookings` crashed on the empty call the prompt asks for and leaked
+# another customer's bookings on the one it does not.
+SESSION_BOUND = frozenset({"user_id"})
+
+
 def _signatures(server: MockToolServer) -> dict[str, set[str]]:
+    """Every argument each tool declares, `self` excluded.
+
+    Bound keys are included so the server can be called completely; they are filtered
+    out of what a model may send at the call site, never dropped from the server's
+    own signature.
+    """
     out: dict[str, set[str]] = {}
     for name in (
         "search_providers", "get_provider", "hold_slot", "book",
@@ -93,6 +106,10 @@ def _coerce(name: str, args: dict) -> dict:
 class Gateway:
     server: MockToolServer
     tracer: Tracer | None = None
+    # The caller's identity, supplied by the session owner rather than by the model.
+    # `list_bookings` filters on it; a model cannot change it, so it cannot read
+    # another customer's bookings even if it names one.
+    user_id: str = "u_local"
     calls_made: int = 0
     _sigs: dict[str, set[str]] = field(default_factory=dict, init=False)
 
@@ -128,6 +145,11 @@ class Gateway:
         if allowed is None:
             return CallResult(name, args, error=ToolError("validation", f"unknown tool {name}"))
 
+        # Bound keys are never the model's to pass: anything it sends under one is
+        # dropped rather than forwarded, so a call that names another customer is
+        # answered for this session's customer, not refused and not honoured.
+        args = {k: v for k, v in args.items() if k not in SESSION_BOUND}
+
         unexpected = set(args) - allowed
         if unexpected:
             detail = f"unexpected argument(s) {sorted(unexpected)} for {name}"
@@ -150,6 +172,10 @@ class Gateway:
         # Only the server's own methods take **the declared kwargs**; a transport
         # closure takes none, because it already captured them.
         call_kwargs = {} if transport is not None else dict(args)
+        # Identity is injected here, after the model's arguments have been checked and
+        # coerced, so a tool that needs it gets the session's value and nothing else.
+        if transport is None:
+            call_kwargs.update({k: self.user_id for k in allowed & SESSION_BOUND})
 
         attempts = 0
         max_attempts = 2  # one retry, for transient only

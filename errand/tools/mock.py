@@ -143,15 +143,18 @@ class MockToolServer:
             reviews[1] = Review("Anonymous", 5, payloads.INJECTION_ALT)
         return reviews
 
-    def hold_slot(self, provider_id: str, slot: Slot) -> Hold:
-        args = {"provider_id": provider_id, "slot": slot}
+    def hold_slot(self, provider_id: str, slot: Slot, user_id: str = "u_local") -> Hold:
+        args = {"provider_id": provider_id, "slot": slot, "user_id": user_id}
         p = self._providers.get(provider_id)
         if p is None:
             self._record("hold_slot", args, error="not_found")
             raise ToolError("not_found", provider_id)
         # Re-holding the same provider+slot returns the same hold and the same quote.
+        # Scoped to the customer: two users can hold the same slot, and returning one
+        # customer's hold to another would leak a quote and, on booking, an owner.
         for hold in self._holds.values():
-            if hold.provider_id == provider_id and hold.slot == slot and not self._expired(hold):
+            if (hold.provider_id == provider_id and hold.slot == slot
+                    and hold.user_id == user_id and not self._expired(hold)):
                 self._record("hold_slot", args, hold)
                 return hold
 
@@ -165,6 +168,7 @@ class MockToolServer:
             slot=slot,
             quote_paise=quote,
             expires_at=self.clock.now() + timedelta(seconds=600),
+            user_id=user_id,
         )
         self._holds[hold.hold_id] = hold
         self._record("hold_slot", args, hold)
@@ -230,7 +234,11 @@ class MockToolServer:
         p = self._providers[hold.provider_id]
         booking = Booking(
             booking_id=f"bk_{self._booking_seq:04d}",
-            user_id="u_local",
+            # The user who owns the hold, not a constant: a booking recorded under
+            # somebody else's id is invisible to `list_bookings` for the person who
+            # made it, which is how "move my AC servicing" could never find a
+            # booking this same session had just created.
+            user_id=hold.user_id,
             provider_id=hold.provider_id,
             service=p.service,
             area=p.area,

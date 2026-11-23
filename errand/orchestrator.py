@@ -104,8 +104,10 @@ class Orchestrator:
         self.llm = llm
         self.tracer = tracer
         self.context = context or ContextAssembler()
-        self.gateway = Gateway(server=server, tracer=tracer)
         self.session = self._load_or_create(session_id, user_id)
+        # The gateway is told who the caller is, so no tool can be asked to read
+        # another customer's records even if the model names one.
+        self.gateway = Gateway(server=server, tracer=tracer, user_id=self.session.user_id)
         self.hold: Hold | None = None
         self.pending: PendingAction | None = None
         self.candidates: list = []

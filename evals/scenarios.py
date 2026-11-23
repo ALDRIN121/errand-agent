@@ -72,7 +72,11 @@ def verify() -> ActionSpec:
 
 
 def listed() -> ActionSpec:
-    return A("list_bookings", {"user_id": "u_aldrin"})
+    # No arguments, exactly as the system prompt describes the tool. Passing
+    # `user_id` here made every manage scenario pass while the real contract crashed:
+    # the script satisfied the server's signature, so nothing exercised the call a
+    # live model actually makes.
+    return A("list_bookings")
 
 
 def details(pid="prov_06") -> ActionSpec:

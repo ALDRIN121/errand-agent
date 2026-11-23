@@ -98,6 +98,9 @@ class Hold:
     slot: Slot
     quote_paise: int
     expires_at: datetime
+    # The customer the hold was taken for. A hold is a quote against one person's
+    # account, and the booking it produces inherits the owner rather than guessing.
+    user_id: str = "u_local"
 
 
 @dataclass
