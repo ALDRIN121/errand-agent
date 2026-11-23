@@ -529,3 +529,41 @@ a reset empties it, and the page source restores it.
 **Lesson.** Two bugs in a row have been "the runtime knows, the user cannot see." State
 that the agent acts on belongs on screen; anything else and the next reply is coherent
 only to the machine.
+
+
+---
+
+## Bug 17 — `/` did nothing: the command list lived only in help you had to already know
+
+Reported: "when writing / put up commands" — typing a slash should offer the commands.
+
+**The defect.** There was no affordance at all. The command list existed in one place,
+the string returned by `/help`, which you could only discover by already knowing to type
+`/help`. Typing `/` was an ordinary character.
+
+**The fix.** A palette opens as soon as the input starts with `/`, filters as you type,
+and is driven by the server's `COMMANDS` table:
+
+- `↑`/`↓` move, `Tab` completes the name, `Enter` runs it, `Esc` closes, mouse works too.
+- `Enter` runs the *highlighted* command, not the partial text. Typing `/ne` and pressing
+  Enter used to send `/ne` and get "unknown command" — the palette existed to make that
+  impossible.
+- `/forget` takes an argument, so it completes to `/forget ` with the cursor placed for
+  the key rather than running immediately.
+- `/help` is now *generated* from the same table, so the two cannot disagree.
+
+**Placement was a bug in itself.** The popup is anchored above the input, and a naive
+`bottom:100%` put it at `top: -112px` on a short window — the first rows were off-screen
+and unreachable, with no scrollbar because the box itself was clipped. It is now
+`position:fixed` with its top measured from the form's bounding rect, clamped to the
+viewport, and the list scrolls inside it. Verified at 469px and 900px viewport heights:
+all six rows visible at both.
+
+**Guarding the class of bug, not just this instance.** `tests/test_command_palette.py`
+asserts that every advertised command has a handler, that `/help` mentions every command,
+that each has a description, that aliases resolve, and that the page does **not** hardcode
+the list — because a hardcoded list is precisely how the UI and the handler drift apart.
+That is the same defect as Bug 15, where the placeholder advertised `/new` and no branch
+for it existed.
+
+**Regression test.** `tests/test_command_palette.py` — 13 tests.

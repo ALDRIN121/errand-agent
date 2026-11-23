@@ -87,6 +87,9 @@ def snapshot(orch: Orchestrator, watcher: Watcher, trace_path: Path | None) -> d
         # a plumber they had never seen mentioned. Invisible state is the bug: whatever
         # the agent is acting on has to be on screen.
         "messages": [{"role": t.role, "text": t.text} for t in orch.history.turns],
+        # The palette's data. Sent with every state poll rather than baked into the
+        # page, so the list the UI offers is the list the handler implements.
+        "commands": [{"name": n, "arg": a, "help": h} for n, a, h in COMMANDS],
         "last_tool_result": orch.last_tool_result,
         # The most recent human-readable progress line, so the page can say what is
         # happening instead of leaving a spinner with no explanation.
@@ -171,6 +174,35 @@ _LABELS = {
     "session_reset": "new conversation",
     "llm_error": "model call failed",
 }
+
+
+# The slash commands, declared once. `/help` renders from this list and the page's
+# palette is built from the same source, so a command cannot exist in one and be
+# invisible in the other. Bug 15 was exactly that failure in the other direction: the
+# placeholder advertised `/new` while the handler had no branch for it.
+COMMANDS: list[tuple[str, str, str]] = [
+    ("/new",     "",                "Start a fresh conversation (keeps memory and bookings)"),
+    ("/memory",  "",                "Show the preferences stored for you"),
+    ("/forget",  "<key>",           "Erase one stored preference"),
+    ("/state",   "",                "Show the current state and slot values"),
+    ("/trace",   "",                "Print the trace file path"),
+    ("/help",    "",                "List these commands"),
+]
+
+# Aliases the handler accepts. Kept out of COMMANDS because the palette should offer one
+# spelling of each action, not two.
+ALIASES = {"/reset": "/new"}
+
+# The `simulate` verb is a demo affordance, not a user command, so it is listed
+# separately: it belongs in /help for a person running the demo and out of the palette
+# that opens on every `/`.
+SIMULATE_HELP = "simulate cancel <booking_id>"
+
+
+def _help_text() -> str:
+    """The `/help` line, derived from COMMANDS so the two cannot disagree."""
+    body = "  ".join(f"{name} {arg}".strip() for name, arg, _ in COMMANDS)
+    return f"commands: {body}  {SIMULATE_HELP}"
 
 
 def _events(trace_path: Path | None, limit: int = 400,
@@ -317,6 +349,36 @@ PAGE = r"""<!doctype html>
   .hit a{color:var(--accent);text-decoration:none;word-break:break-all}
   .hit a:hover{text-decoration:underline}
   .hit .sn{color:var(--dim);display:block;margin-top:3px}
+  /* The slash-command palette, anchored above the input. `bottom:100%` keeps it
+     attached to the form rather than floating over the log, and the scroll cap stops a
+     long list from covering the conversation it is about to act on. */
+  form{position:relative}
+  #palette{position:fixed;left:18px;right:18px;margin-bottom:-4px;
+           background:var(--panel);border:1px solid var(--line);border-radius:10px;
+           box-shadow:0 8px 28px rgba(0,0,0,.28);overflow:hidden;z-index:20;
+           /* The popup must never extend past the top of the window. A plain
+              `max-height` in px still overshot on a short window and pushed the first
+              rows off-screen where they could not be reached. `position:fixed` is set
+              from JS with a measured top, so the box is placed against the viewport
+              rather than against a form it may not have room for. */
+           display:flex;flex-direction:column}
+  #palette[hidden]{display:none}
+  #palette .list{overflow-y:auto;min-height:0}
+  .cmd{display:flex;align-items:baseline;gap:10px;padding:9px 12px;cursor:pointer;
+       border-bottom:1px solid var(--line)}
+  .cmd:last-child{border-bottom:none}
+  .cmd:hover{background:var(--panel2)}
+  /* The selected row needs to be unmistakable from the keyboard. A left bar alone was
+     invisible against the panel; this pairs it with a tint and a brighter name. */
+  .cmd.sel{background:#243044;box-shadow:inset 3px 0 0 var(--accent)}
+  @media (prefers-color-scheme:light){.cmd.sel{background:#e8f0ff}}
+  .cmd.sel .nm{color:var(--ink)}
+  .cmd .nm{font:600 13px var(--mono);color:var(--accent);white-space:nowrap}
+  .cmd .ar{font:12px var(--mono);color:var(--warn);white-space:nowrap}
+  .cmd .hp{font:12px/1.3 -apple-system,BlinkMacSystemFont,sans-serif;color:var(--dim);
+           overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #palette .foot{padding:6px 12px;font:11px var(--mono);color:var(--dim);
+                 background:var(--panel2);border-top:1px solid var(--line)}
 </style>
 </head>
 <body>
@@ -335,6 +397,7 @@ PAGE = r"""<!doctype html>
     <div id="live" hidden><span class="lbl">writing</span><span id="live-text"></span></div>
     <div id="status"><span class="dot"></span><span id="status-text">ready</span></div>
     <form id="say" autocomplete="off">
+      <div id="palette" hidden></div>
       <input id="text" type="text" placeholder="Find a plumber in Koramangala this week, mornings, under Rs 1500" autofocus>
       <button class="primary" id="send">Send</button>
       <button type="button" id="newchat" style="display:none" onclick="command('/new')">New chat</button>
@@ -383,6 +446,9 @@ PAGE = r"""<!doctype html>
 <script>
 const $ = id => document.getElementById(id);
 let seenEvents = 0, model = "—", busy = false;
+// The command list, filled from /api/state. Empty until the first poll answers, and the
+// palette simply does not open until it does rather than showing a stale hardcoded list.
+let COMMANDS = [];
 
 function esc(s){const d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML;}
 
@@ -559,6 +625,7 @@ async function refresh(){
     const r = await fetch('/api/state');
     const s = await r.json();
     model = s.model || model;
+    if(Array.isArray(s.commands)) COMMANDS = s.commands;
     $('p-conn').textContent = 'live';
     $('p-conn').style.color = 'var(--ok)';
     restore(s.messages);
@@ -617,6 +684,102 @@ async function forget(key){
   if(res.text) sys(res.text);
   refresh();
 }
+
+// ---------------------------------------------------------------- the command palette
+//
+// Typing `/` used to be pure memory: the command list lived in /help, which you had to
+// already know to ask for. The palette opens on `/`, filters as you type, and is driven
+// by the server's COMMANDS list so it can only ever offer what the handler implements.
+
+let palIdx = 0;
+
+function palItems(){
+  const raw = $('text').value;
+  if(!raw.startsWith('/')) return [];
+  const q = raw.toLowerCase();
+  return COMMANDS.filter(c => c.name.toLowerCase().startsWith(q));
+}
+
+function palClose(){ $('palette').hidden = true; palIdx = 0; }
+
+function palDraw(){
+  const items = palItems();
+  if(!items.length){ palClose(); return; }
+  if(palIdx >= items.length) palIdx = 0;
+  const box = $('palette');
+  box.innerHTML = `<div class="list">` + items.map((c, i) =>
+    `<div class="cmd${i === palIdx ? ' sel' : ''}" data-name="${esc(c.name)}">
+       <span class="nm">${esc(c.name)}</span>
+       ${c.arg ? `<span class="ar">${esc(c.arg)}</span>` : ''}
+       <span class="hp">${esc(c.help)}</span>
+     </div>`).join('')
+    + `</div><div class="foot">↑↓ choose · Tab complete · Enter run · Esc close</div>`;
+  box.hidden = false;
+  // Place against the viewport, not the form. Measuring after the content is in the DOM
+  // is the only way to know how tall the list actually is; then the popup sits above the
+  // input when there is room and is pinned to the top of the window when there is not.
+  const form = $('say').getBoundingClientRect();
+  const margin = 8;
+  box.style.maxHeight = '';
+  const want = box.scrollHeight;
+  const room = form.top - margin * 2;
+  box.style.maxHeight = Math.min(want, room) + 'px';
+  const h = Math.min(want, room);
+  box.style.top = Math.max(margin, form.top - h - 4) + 'px';
+  box.style.bottom = 'auto';
+  // Keep the highlighted row visible when the list is taller than the popup, so arrow
+  // keys do not walk the selection off the bottom of a scrolling box.
+  const sel = box.querySelector('.cmd.sel');
+  if(sel) sel.scrollIntoView({block:'nearest'});
+  // Mouse, as well as the keyboard. `mousedown` rather than `click` so the input does
+  // not lose focus and blur the palette out from under the pointer.
+  for(const el of box.querySelectorAll('.cmd')){
+    el.addEventListener('mousedown', ev => {
+      ev.preventDefault();
+      palApply(el.dataset.name);
+    });
+  }
+}
+
+function palApply(name){
+  $('text').value = name + (name === '/forget' ? ' ' : '');
+  palClose();
+  // A command with no argument runs on Enter; one that takes an argument leaves the
+  // cursor after it so the user types the key rather than discovering the shape by
+  // getting an error.
+  if(!name.startsWith('/forget')) { say(); }
+  else $('text').focus();
+}
+
+function palMove(delta){
+  const items = palItems();
+  if(!items.length) return;
+  palIdx = (palIdx + delta + items.length) % items.length;
+  palDraw();
+}
+
+$('text').addEventListener('input', () => { palIdx = 0; palDraw(); });
+$('text').addEventListener('keydown', ev => {
+  if($('palette').hidden){
+    if(ev.key === '/') { /* let it type, `input` opens the palette */ }
+    return;
+  }
+  if(ev.key === 'ArrowDown'){ ev.preventDefault(); palMove(1); }
+  else if(ev.key === 'ArrowUp'){ ev.preventDefault(); palMove(-1); }
+  else if(ev.key === 'Enter'){
+    // Enter runs the *highlighted* command, not the partial text. Otherwise typing
+    // "/ne" and hitting Enter sent "/ne" to the server and got "unknown command".
+    const items = palItems();
+    if(items[palIdx]){ ev.preventDefault(); palApply(items[palIdx].name); }
+  }
+  else if(ev.key === 'Tab'){
+    ev.preventDefault();
+    const items = palItems();
+    if(items[palIdx]) { $('text').value = items[palIdx].name; palDraw(); }
+  }
+  else if(ev.key === 'Escape'){ ev.preventDefault(); palClose(); }
+});
+$('text').addEventListener('blur', () => setTimeout(palClose, 120));
 
 $('say').addEventListener('submit', e => { e.preventDefault(); say(); });
 refresh();
@@ -732,8 +895,7 @@ class Handler(BaseHTTPRequestHandler):
             return {"text": "Use Ctrl-C in the server terminal to stop."}, 200
 
         if line == "/help":
-            return {"text": "commands: /new  /memory  /forget <key>  /state  /trace  "
-                            "simulate cancel <booking_id>"}, 200
+            return {"text": _help_text()}, 200
 
         if line in ("/new", "/reset"):
             # Advertised in the placeholder text since the UI was written and never
