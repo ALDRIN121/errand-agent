@@ -9,6 +9,15 @@ this project, as required by the brief.
 |---|---|
 | `session.md` | the working conversation: design, implementation, and the defects found |
 
+## Format
+
+The whole build ran in one session (51 user turns, ~1,640 assistant turns, ~1,640
+tool calls). User and assistant text is verbatim, including the wrong turns; tool
+calls are listed one line each with arguments elided for length; tool results are
+omitted, since the traces under `traces/` reproduce them. Hermes' context-compaction
+handoffs — summaries of earlier turns the runtime generated — are marked rather than
+repeated.
+
 ## What the transcript shows
 
 It is included unedited, including the parts where the assistant was wrong. Three
