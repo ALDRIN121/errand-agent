@@ -1,0 +1,15 @@
+{"seq": 1, "type": "turn", "n": 1, "user": "Book prov_06 for tomorrow at 10.", "state": "NEW"}
+{"seq": 2, "type": "context", "tokens": 806, "included": 1, "excluded": 2, "state": "NEW"}
+{"seq": 3, "type": "progress", "key": "thinking", "text": "Thinking about what to do next", "detail": null, "state": "NEW"}
+{"seq": 4, "type": "action", "tool": "hold_slot", "args": {"provider_id": "prov_06", "slot": {"start": "2026-11-24T09:00:00+05:30", "end": "2026-11-24T10:00:00+05:30"}}, "message": null, "state": "NEW"}
+{"seq": 5, "type": "action_attributed", "tool": "hold_slot", "args_hash": "c3eee17e2e34c3ad", "state": "SELECTING"}
+{"seq": 6, "type": "progress", "key": "holding", "text": "Holding the slot", "detail": "hold_slot", "state": "SELECTING"}
+{"seq": 7, "type": "tool_call", "name": "hold_slot", "args": {"provider_id": "prov_06", "slot": {"start": "2026-11-24T09:00:00+05:30", "end": "2026-11-24T10:00:00+05:30"}}, "attempts": 1, "state": "SELECTING", "result": {"hold_id": "hold_001", "status": null}}
+{"seq": 8, "type": "tool_result_summary", "tool": "hold_slot", "chars": 0}
+{"seq": 9, "type": "approval_requested", "kind": "book", "digest": "45966df12ed3", "text": "Book service with prov_06, Tue 24 Nov 09:00-10:00, quoted Rs 1,400. Confirm?"}
+{"seq": 10, "type": "turn", "n": 2, "user": "yes", "state": "AWAITING_APPROVAL"}
+{"seq": 11, "type": "action_attributed", "tool": "book", "args_hash": "44136fa355b3678a", "state": "EXECUTING"}
+{"seq": 12, "type": "side_effect_error", "tool": "book", "error": "timeout"}
+{"seq": 13, "type": "tool_call", "name": "get_booking_status", "args": {"idempotency_key": "b34fc687-d419-5319-93c1-2fda58acc338"}, "attempts": 1, "state": "VERIFYING", "result": {"status": "booked", "booking_id": "bk_0001"}}
+{"seq": 14, "type": "side_effect_ok", "tool": "book", "booking_id": "bk_0001", "verified": true}
+{"seq": 15, "type": "terminal", "outcome": "booked_verified_after_timeout", "verb": "book"}

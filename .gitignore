@@ -6,3 +6,6 @@ __pycache__/
 evals/results/*.json
 traces/*.jsonl
 .egm/reviews/**/raw/
+
+# Internal EGM workspace (design review artifacts, assignment brief)
+.egm/
