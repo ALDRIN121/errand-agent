@@ -80,7 +80,7 @@ def snapshot(orch: Orchestrator, watcher: Watcher, trace_path: Path | None) -> d
         "memory": [
             {"key": m.key, "value": str(m.value), "source": m.source} for m in memory_rows
         ],
-        "events": _events(trace_path),
+        "events": _events(trace_path, after=_last_reset_seq(trace_path)),
         "last_tool_result": orch.last_tool_result,
         # The most recent human-readable progress line, so the page can say what is
         # happening instead of leaving a spinner with no explanation.
@@ -162,13 +162,26 @@ _LABELS = {
     "status_check": "status check",
     "terminal": "terminal",
     "proactive": "proactive",
+    "session_reset": "new conversation",
+    "llm_error": "model call failed",
 }
 
 
-def _events(trace_path: Path | None, limit: int = 400) -> list[dict]:
+def _events(trace_path: Path | None, limit: int = 400,
+            after: int | None = None) -> list[dict]:
+    """Trace rows for the panel, bounded to the current conversation.
+
+    `after` is the seq of the newest `session_reset`. Rows before it belong to a
+    conversation the user has left, and showing them means a new chat still reads as
+    the old one — the exact complaint `/new` was added to answer.
+    """
     if not trace_path:
         return []
     rows = read_trace(trace_path)
+    if after is not None:
+        # `>=`, not `>`: the reset marker itself is the first row of the new
+        # conversation, and it is what tells the panel a conversation began.
+        rows = [r for r in rows if (r.get("seq") or 0) >= after]
     out = []
     for row in rows[-limit:]:
         kind = row.get("type", "?")
@@ -179,6 +192,16 @@ def _events(trace_path: Path | None, limit: int = 400) -> list[dict]:
             "detail": _detail(kind, row),
         })
     return out
+
+
+def _last_reset_seq(trace_path: Path | None) -> int | None:
+    """Seq of the newest `session_reset`, or None if this run never reset."""
+    if not trace_path:
+        return None
+    for row in reversed(read_trace(trace_path)):
+        if row.get("type") == "session_reset":
+            return row.get("seq")
+    return None
 
 
 def _last_progress(trace_path: Path | None) -> dict | None:
@@ -308,6 +331,7 @@ PAGE = r"""<!doctype html>
     <form id="say" autocomplete="off">
       <input id="text" type="text" placeholder="Find a plumber in Koramangala this week, mornings, under Rs 1500" autofocus>
       <button class="primary" id="send">Send</button>
+      <button type="button" id="newchat" style="display:none" onclick="command('/new')">New chat</button>
     </form>
   </section>
 
@@ -489,12 +513,21 @@ function render(s){
     $('events').scrollTop = 1e9;
   }
 
-  // input lock: a terminal session cannot take more turns
-  $('text').disabled = !!s.terminal || busy;
-  $('send').disabled = !!s.terminal || busy;
+  // The input stays enabled in a terminal session. It used to be disabled here, with
+  // the placeholder telling the user to type /new — but a disabled input cannot be
+  // typed into, so the only command that could revive the session was the one command
+  // the UI made impossible. A finished session accepts /new (and the other /commands);
+  // the server refuses a *turn* with a 409 that says so.
+  $('text').disabled = busy;
+  $('send').disabled = busy;
   $('text').placeholder = s.terminal
-    ? 'session ended — /new to start another'
+    ? 'This conversation has ended — type /new to start another'
     : 'Find a plumber in Koramangala this week, mornings, under Rs 1500';
+
+  // And a button, because a placeholder is not an affordance: the way out of a
+  // finished session should be clickable, not a sentence the user has to retype.
+  const nw = $('newchat');
+  if (nw) nw.style.display = s.terminal ? '' : 'none';
 }
 
 async function refresh(){
@@ -546,6 +579,10 @@ async function command(line){
   $('text').value = '';
   const res = await post('/api/command', {line});
   if(res.text) sys(res.text, res.cls || '');
+  // A reset starts a visibly empty conversation. The server has dropped the history,
+  // so leaving the old bubbles on screen would show a transcript the session no longer
+  // contains — the mirror image of the bug that made /new necessary.
+  if(res.reset) $('log').innerHTML = '';
   refresh();
 }
 
@@ -639,7 +676,7 @@ class Handler(BaseHTTPRequestHandler):
             with self.lock:
                 if self.orch.session.state.value == "TERMINAL":
                     self._json({"reply": None,
-                                "error": "session ended — restart with /new"}, 409)
+                                "error": "session ended — type /new to start another"}, 409)
                     return
                 try:
                     result = self.orch.handle_turn(text)
@@ -678,7 +715,8 @@ class Handler(BaseHTTPRequestHandler):
             # process.
             session = orch.reset()
             return {"text": f"new conversation started (session {session.id}). "
-                            f"Memory and existing bookings are kept."}, 200
+                            f"Memory and existing bookings are kept.",
+                    "reset": True}, 200
 
         if line == "/state":
             return {"text": (f"state:  {orch.session.state.value}\n"

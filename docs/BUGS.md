@@ -452,3 +452,44 @@ as "A service call failed" with no cause on screen or in the trace. It now recor
 model did not. State is not context — a fact only exists for the model once it is in
 the prompt — and a fixture is not a world: a three-day window made the product's own
 example request unanswerable.
+
+
+---
+
+## Bug 15 — a finished session was a dead end: the input was disabled on exactly the state that needed `/new`
+
+Reported live, in three words: "Cannot even type a message now."
+
+**The defect.** `render()` did `$('text').disabled = !!s.terminal || busy`. Once the
+session reached TERMINAL the text input was disabled — and the placeholder on that same
+disabled input read "session ended — /new to start another". The only command that
+could revive the session was the one command the UI made impossible to type. A reload
+did not help either: the page reconnected to the same live orchestrator, still in
+TERMINAL. Killing the process was the only exit.
+
+This is the shape of bug that a route test misses. `/api/command` faithfully supported
+`/new`; the server was right. The block was one line of client-side CSS-adjacent state,
+and every test drove the server directly, so nothing caught it.
+
+**The fix.** The input is disabled only while a turn is in flight (`busy`), never for
+being finished. A finished session accepts `/new` and the other `/command`s, and the
+server refuses a *turn* with a 409 that names the way out. And because a placeholder is
+not an affordance, a **New chat** button appears when the session ends — the exit is
+clickable rather than a sentence to retype.
+
+Two follow-ons, both needed for the reset to look like what it claims:
+- The visible transcript is cleared on reset. The server had dropped the history, so
+  leaving the old bubbles on screen showed a conversation the session no longer held.
+- The trace panel is bounded to the current conversation via the newest
+  `session_reset` seq. A new chat whose trace still listed the old turns reads as the
+  old chat — the same complaint, one panel over.
+
+**Regression test.** `tests/test_ui_deadlock.py` — seven tests, including that the page
+source no longer contains `disabled = !!s.terminal`, that `/new` is accepted *from*
+TERMINAL, that a turn works afterwards (not just a state flag), and that the trace panel
+shows only the reset marker.
+
+**Lesson.** A capability the server has is not a capability the user has. Every route
+test in this suite POSTed straight to `/api/command` and passed while the person at the
+keyboard was locked out. The UI's own affordances need at least one test that reads them
+as the browser would.
