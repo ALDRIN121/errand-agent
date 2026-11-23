@@ -81,6 +81,12 @@ def snapshot(orch: Orchestrator, watcher: Watcher, trace_path: Path | None) -> d
             {"key": m.key, "value": str(m.value), "source": m.source} for m in memory_rows
         ],
         "events": _events(trace_path, after=_last_reset_seq(trace_path)),
+        # The conversation itself, so a reload shows what the agent already believes was
+        # said. Without this the page came back to an empty log while the server still
+        # held a live request — the user saw a blank chat, said "hi", and got a pitch for
+        # a plumber they had never seen mentioned. Invisible state is the bug: whatever
+        # the agent is acting on has to be on screen.
+        "messages": [{"role": t.role, "text": t.text} for t in orch.history.turns],
         "last_tool_result": orch.last_tool_result,
         # The most recent human-readable progress line, so the page can say what is
         # happening instead of leaving a spinner with no explanation.
@@ -530,6 +536,24 @@ function render(s){
   if (nw) nw.style.display = s.terminal ? '' : 'none';
 }
 
+// The transcript, restored from the server. A reload used to come back to an empty
+// log even though the session was still mid-request, so the agent's context and the
+// user's screen disagreed — the user saw a blank chat and was answered about a
+// plumber they had never been shown. Invisible state is the bug: whatever the agent is
+// acting on has to be on screen.
+//
+// Counted, not diffed, and redrawn wholesale when the count changes. The transcript is
+// at most a turn budget long, so a rebuild is cheap, and a full redraw cannot drift out
+// of sync the way an incremental top-up can when the runtime appends an assistant line
+// the page chose not to bubble.
+let rendered = 0;
+function restore(msgs){
+  if(!Array.isArray(msgs) || msgs.length === rendered) return;
+  $('log').innerHTML = '';
+  for(const m of msgs) bubble(m.role === 'user' ? 'user' : 'agent', m.text);
+  rendered = msgs.length;
+}
+
 async function refresh(){
   try{
     const r = await fetch('/api/state');
@@ -537,6 +561,7 @@ async function refresh(){
     model = s.model || model;
     $('p-conn').textContent = 'live';
     $('p-conn').style.color = 'var(--ok)';
+    restore(s.messages);
     render(s);
   }catch(e){
     $('p-conn').textContent = 'disconnected';
@@ -555,6 +580,7 @@ async function say(text){
   if(!text) return;
   if(text.startsWith('/')){ await command(text); return; }
   bubble('user', text);
+  rendered += 1;   // this turn is on screen; `restore` must not draw it again
   $('text').value = '';
   busy = true;
   $('text').disabled = true; $('send').disabled = true;
@@ -562,7 +588,7 @@ async function say(text){
   $('status-text').textContent = 'sending…';
   try{
     const res = await post('/api/turn', {text});
-    if(res.reply) bubble('agent', res.reply);
+    if(res.reply) { bubble('agent', res.reply); rendered += 1; }
     for(const p of (res.proactive || [])) sys('[proactive] ' + p);
     if(res.error) sys(res.error, 'bad');
   }catch(e){
@@ -582,7 +608,7 @@ async function command(line){
   // A reset starts a visibly empty conversation. The server has dropped the history,
   // so leaving the old bubbles on screen would show a transcript the session no longer
   // contains — the mirror image of the bug that made /new necessary.
-  if(res.reset) $('log').innerHTML = '';
+  if(res.reset) { $('log').innerHTML = ''; rendered = 0; }
   refresh();
 }
 

@@ -493,3 +493,39 @@ shows only the reset marker.
 test in this suite POSTed straight to `/api/command` and passed while the person at the
 keyboard was locked out. The UI's own affordances need at least one test that reads them
 as the browser would.
+
+
+---
+
+## Bug 16 — a reload came back to an empty chat while the agent still held the request
+
+Reported live: the page showed a blank conversation, the user typed "hi", and the
+agent replied with a full pitch for a plumber — a request the user had never seen
+mentioned on screen.
+
+**The defect.** `/api/state` never returned the conversation. The orchestrator kept
+`history.turns` and fed the last six into the model's context, but the page rebuilt its
+log from nothing on load. So after a reload the agent's view of the conversation and
+the user's view disagreed completely: the agent was mid-plumbing-task and the screen was
+blank. "hi" was answered correctly *for the agent's context* and nonsensically for the
+person reading it.
+
+This is the same fault as Bug 15 one layer down. There the UI hid the input; here it
+hides the conversation. A transcript the agent is acting on that the user cannot see is
+not a display nicety — it is the user being asked to trust a request they cannot inspect.
+
+**The fix.** `/api/state` returns `messages` — the session's own turns, in order. The
+page redraws the log from it whenever the count changes, and `/new` resets the counter
+along with the log so a fresh conversation starts visibly empty.
+
+Redrawn wholesale rather than topped up: the transcript is at most one turn budget long,
+and an incremental append drifts out of sync the moment the runtime records an assistant
+line the page chose not to bubble (a refusal, an established-facts aside). A full redraw
+cannot drift.
+
+**Regression test.** `tests/test_ui_deadlock.py` — the endpoint reports the transcript,
+a reset empties it, and the page source restores it.
+
+**Lesson.** Two bugs in a row have been "the runtime knows, the user cannot see." State
+that the agent acts on belongs on screen; anything else and the next reply is coherent
+only to the machine.

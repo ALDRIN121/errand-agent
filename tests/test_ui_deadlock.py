@@ -70,7 +70,7 @@ def test_the_page_offers_a_visible_way_to_start_again():
 
 def test_a_reset_clears_the_visible_transcript():
     """A cleared session must not keep showing the old conversation."""
-    assert "if(res.reset) $('log').innerHTML = '';" in PAGE
+    assert "if(res.reset) { $('log').innerHTML = ''; rendered = 0; }" in PAGE
 
 
 # ---------------------------------------------------------------- the routes
@@ -114,6 +114,50 @@ def test_the_session_can_be_used_again_after_new(tmp_path):
         status, payload = _post(base, "/api/turn", {"text": "hello again"})
         assert status == 200, payload
         assert payload.get("state") != "TERMINAL"
+    finally:
+        httpd.shutdown()
+        world.close()
+
+
+def test_the_transcript_survives_a_reload():
+    """A reload must show the conversation the agent is still acting on.
+
+    Reported: the page came back empty while the server still held a plumbing request,
+    so "hi" was answered with a plumber pitch for a request the user could not see.
+    """
+    assert '"messages"' in PAGE or "messages" in PAGE
+    assert "restore(s.messages)" in PAGE
+    assert "function restore(msgs)" in PAGE
+
+
+def test_the_state_endpoint_reports_the_transcript(tmp_path):
+    orch, world, _, watcher = _ended(tmp_path)
+    httpd = serve(orch, watcher, port=0)
+    base = f"http://127.0.0.1:{httpd.server_port}"
+    try:
+        _post(base, "/api/command", {"line": "/new"})
+        _post(base, "/api/turn", {"text": "Find a plumber in Koramangala"})
+        body = json.load(urllib.request.urlopen(base + "/api/state"))
+        assert "messages" in body, sorted(body)
+        assert [m["role"] for m in body["messages"]][:2] == ["user", "assistant"]
+        assert "plumber" in body["messages"][0]["text"].lower()
+    finally:
+        httpd.shutdown()
+        world.close()
+
+
+def test_the_transcript_is_empty_after_a_reset(tmp_path):
+    orch, world, _, watcher = _ended(tmp_path)
+    httpd = serve(orch, watcher, port=0)
+    base = f"http://127.0.0.1:{httpd.server_port}"
+    try:
+        _post(base, "/api/command", {"line": "/new"})
+        _post(base, "/api/turn", {"text": "Find a plumber in Koramangala"})
+        _post(base, "/api/command", {"line": "/new"})
+        body = json.load(urllib.request.urlopen(base + "/api/state"))
+        assert body["messages"] == [], (
+            f"a new conversation still shows {len(body['messages'])} old turns"
+        )
     finally:
         httpd.shutdown()
         world.close()
