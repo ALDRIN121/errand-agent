@@ -567,3 +567,42 @@ That is the same defect as Bug 15, where the placeholder advertised `/new` and n
 for it existed.
 
 **Regression test.** `tests/test_command_palette.py` — 13 tests.
+
+
+---
+
+## Bug 18 — the transcript stopped at "done", so the sessions that found the real defects were unshared
+
+The brief asks for the AI transcripts. `docs/ai-transcripts/session.md` was committed and
+pushed, but it ends at the commit where the build was declared finished (`b08a56e`,
+527 tests).
+
+Every defect worth reading about was found *after* that point, by driving the finished
+agent: the crashing `list_bookings`, the cross-customer read, the empty chat after a
+reload, the finished session that could not be typed into, the `/` that did nothing.
+Those are five Bugs (13–17) and roughly 560 lines of `BUGS.md` that no transcript
+covered. The file that satisfied the brief's wording showed none of the work the brief
+actually cared about — the failures and how they were caught.
+
+**The fix.** `docs/export_transcript.py` reads `~/.hermes/state.db` and writes the
+session in the same format as the shipped transcript: user and assistant text verbatim,
+one line per tool call with arguments elided, compaction handoffs marked.
+`docs/ai-transcripts/session-2.md` is that export.
+
+Two properties were built in rather than checked afterwards:
+
+- **Redaction happens in the writer.** This repo is public, so the exporter strips
+  credential shapes (`sk-`, `ghp_`, `AKIA`, JWTs, `api_key = …`) from every string it
+  emits, and also removes the literal keys read from the user's config. The current
+  session happens to contain none — but "happens to contain none" is luck, and luck does
+  not survive the next session.
+- **The published files are scanned.** `tests/test_transcript_export.py` reads
+  `session.md` and `session-2.md` off disk and asserts neither contains a
+  credential-shaped string, and asserts both are tracked by git. A transcript that is
+  gitignored is not shared, whatever the README claims.
+
+**A test caught a real hole in the redactor.** My JWT pattern required 20+ characters in
+each segment; the test fixture used a realistic short token and the pattern missed it.
+Loosened to 8+, which is still far longer than any ordinary word that starts with `eyJ`.
+
+**Regression test.** `tests/test_transcript_export.py` — 15 tests.

@@ -87,4 +87,4 @@ double-book.
 | Scenarios | 45 (45 pass) |
 | Invariants | 11 (100%) |
 | Runtime dependencies | 0 |
-| Source / test lines | 5,838 / 4,593 |
+| Source / test lines | 5,838 / 4,673 |
