@@ -27,6 +27,9 @@ from errand.orchestrator import Orchestrator
 from errand.outcomes import render_outcome
 from errand.tools.mock import MockToolServer
 from errand.tools.websearch import MockWebSearch, WebSearch, hits_from
+from errand.trace import Tracer
+from errand.watcher import Watcher
+from evals.demo_data import ANCHOR, build_world
 
 # Canned results for `--mock-web`. Inline and short on purpose: this is a fixture, not
 # content, and every field is visibly fake so nobody mistakes it for a live lookup.
@@ -43,9 +46,6 @@ _DEMO_WEB = (
      "Ask for the firm's GST number, read recent reviews, and confirm the price "
      "before work starts."),
 )
-from errand.trace import Tracer
-from errand.watcher import Watcher
-from evals.demo_data import ANCHOR, build_world
 
 HELP = """commands:
   /memory            what I remember about you

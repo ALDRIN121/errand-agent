@@ -11,15 +11,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from errand.approval import ApprovalStore
-from errand.clock import Clock, FakeClock
+from errand.clock import FakeClock
 from errand.context import ContextAssembler
-from errand.history import History
 from errand.llm import Action, ScriptedLLM
 from errand.memory import MemoryStore
 from errand.orchestrator import Orchestrator, TurnResult
 from errand.trace import Tracer, read_trace
-from errand.watcher import Watcher
 from errand.types import Slot
+from errand.watcher import Watcher
 from evals.demo_data import ANCHOR, build_world
 from evals.scenarios import Scenario
 

@@ -11,7 +11,6 @@ import pytest
 from errand.approval import ApprovalStore
 from errand.clock import FakeClock
 from errand.context import ContextAssembler
-from errand.db import Database
 from errand.llm import ScriptedLLM
 from errand.orchestrator import Orchestrator
 from errand.watcher import Watcher

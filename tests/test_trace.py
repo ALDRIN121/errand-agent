@@ -6,10 +6,6 @@ of `outcome_verb` attributed a verified cancel to `book`.
 """
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest
-
 from errand.trace import Tracer, read_trace, redact, sanitize
 
 

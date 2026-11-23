@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from errand.llm import Action, HttpLLMClient, LLMError
+from errand.llm import HttpLLMClient, LLMError
 
 
 class _Recorder:
@@ -144,7 +144,7 @@ def test_the_state_and_its_legal_tools_reach_the_model(server):
 
     system = rec.requests[0]["body"]["messages"][0]["content"]
     assert "SEARCHING" in system
-    tools_line = next(
+    _tools_line = next(
         line for line in system.splitlines() if "Tools available to you:" in line
     )
     offered = _offered_tools(system)
@@ -164,7 +164,7 @@ def test_new_state_offers_the_tools_it_can_propose(server):
     HttpLLMClient(base_url=base_url, api_key="k", model="m").propose("x", state="NEW")
     system = rec.requests[0]["body"]["messages"][0]["content"]
     assert "NEW" in system
-    tools_line = next(l for l in system.splitlines() if "Tools available to you:" in l)
+    tools_line = next(line for line in system.splitlines() if "Tools available to you:" in line)
     assert "search_providers" in tools_line
     assert "propose" in system.lower(), "the model must be told a proposal is how it starts"
 
@@ -354,7 +354,7 @@ def test_the_search_result_reaches_the_model_on_the_next_step():
 def test_the_last_tool_result_is_summarised_not_dumped():
     """The budget allows 500 tokens for a result; the raw payload is far larger."""
     from errand.clock import FakeClock
-    from errand.orchestrator import _summarise
+    from errand.wording import summarise as _summarise
     from evals.demo_data import ANCHOR, build_world
 
     clock = FakeClock(ANCHOR.replace(hour=8))
@@ -370,13 +370,13 @@ def test_the_last_tool_result_is_summarised_not_dumped():
 
 
 def test_no_providers_summarises_to_a_statement():
-    from errand.orchestrator import _summarise
+    from errand.wording import summarise as _summarise
 
     assert _summarise("search_providers", []) == "No providers matched."
 
 
 def test_an_unknown_tool_summarises_to_nothing():
-    from errand.orchestrator import _summarise
+    from errand.wording import summarise as _summarise
 
     assert _summarise("hold_slot", {"hold_id": "h1"}) is None
 

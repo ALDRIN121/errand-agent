@@ -1,4 +1,4 @@
-"""The 37 eval scenarios, as data.
+"""The 45 eval scenarios, as data.
 
 Each entry is a complete script: the world it needs, the user's turns, the exact
 sequence of model actions the scripted LLM returns, and the terminal token the run
@@ -8,8 +8,8 @@ Design notes that took a decision:
 
 * `scripted` is the model's action queue, one `Action` per model call. A turn that
   produces no tool call still consumes one `Action`.
-* `needs="watcher"` marks the four runs that cannot pass until Phase 5 exists.
-  The Phase 4 gate is 33 green; Phase 5 makes it 37.
+* `needs="watcher"` marks the four runs that drive the unattended provider-cancel
+  path. They are collected with the rest; the harness runs all 45.
 * `dialogue_id` links a scenario to its narration in `demo_dialogues.json`. The
   link is for documentation and for the demo, never for assertions.
 """

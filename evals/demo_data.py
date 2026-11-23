@@ -150,7 +150,7 @@ def build_world(
     # --- rows that must be excluded from every context: a forgotten preference and
     # an unconfirmed inference. Seeded through the real API so the cascade applies.
     if user:
-        stale_id = memory.add(user_id, "preferred_area_old", "Indiranagar", "location",
+        _stale_id = memory.add(user_id, "preferred_area_old", "Indiranagar", "location",
                               source="user")
         memory.forget(user_id, "preferred_area_old")
         memory.infer(user_id, "probable_budget", "2500", "budget")

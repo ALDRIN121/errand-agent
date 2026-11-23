@@ -2,7 +2,8 @@
 
 No browser and no mocking of the server: bind port 0, POST to it, read the JSON that
 comes back. A screenshot cannot prove `/api/state` reports the same state the
-orchestrator holds; this can.
+orchestrator holds
+this can.
 """
 from __future__ import annotations
 
@@ -10,15 +11,13 @@ import json
 import urllib.error
 import urllib.request
 
-import pytest
-
 from errand.approval import ApprovalStore
 from errand.clock import FakeClock
 from errand.context import ContextAssembler
 from errand.llm import ScriptedLLM
 from errand.orchestrator import Orchestrator
 from errand.trace import Tracer
-from errand.ui import PAGE, serve, snapshot
+from errand.ui import PAGE, serve
 from errand.watcher import Watcher
 from evals.demo_data import ANCHOR, build_world
 from evals.runner import actions_for
@@ -102,7 +101,10 @@ def test_state_reports_what_the_orchestrator_holds(tmp_path):
         assert payload["model"] == "test"
         assert payload["budgets"]["turns"] > 0
     finally:
-        httpd.shutdown(); httpd.server_close(); trace.close(); world.close()
+        httpd.shutdown()
+        httpd.server_close()
+        trace.close()
+        world.close()
 
 
 def test_state_shows_nothing_pending_before_a_hold(tmp_path):
@@ -112,7 +114,10 @@ def test_state_shows_nothing_pending_before_a_hold(tmp_path):
         assert payload["pending"] is None
         assert payload["terminal"] is False
     finally:
-        httpd.shutdown(); httpd.server_close(); trace.close(); world.close()
+        httpd.shutdown()
+        httpd.server_close()
+        trace.close()
+        world.close()
 
 
 def test_a_turn_moves_the_state_the_ui_reports(tmp_path):
@@ -126,7 +131,10 @@ def test_a_turn_moves_the_state_the_ui_reports(tmp_path):
         after = json.loads(_get(httpd, "/api/state")[0])["state"]
         assert after != before or orch.session.turns == 1
     finally:
-        httpd.shutdown(); httpd.server_close(); trace.close(); world.close()
+        httpd.shutdown()
+        httpd.server_close()
+        trace.close()
+        world.close()
 
 
 def test_an_empty_turn_is_refused(tmp_path):
@@ -136,7 +144,10 @@ def test_an_empty_turn_is_refused(tmp_path):
         assert status == 400
         assert "error" in payload
     finally:
-        httpd.shutdown(); httpd.server_close(); trace.close(); world.close()
+        httpd.shutdown()
+        httpd.server_close()
+        trace.close()
+        world.close()
 
 
 def test_a_turn_after_terminal_is_refused_not_crashed(tmp_path):
@@ -148,7 +159,10 @@ def test_a_turn_after_terminal_is_refused_not_crashed(tmp_path):
         assert status == 409
         assert "ended" in payload["error"].lower()
     finally:
-        httpd.shutdown(); httpd.server_close(); trace.close(); world.close()
+        httpd.shutdown()
+        httpd.server_close()
+        trace.close()
+        world.close()
 
 
 # ------------------------------------------------------------------ commands
@@ -167,7 +181,10 @@ def test_the_commands_mirror_the_cli(tmp_path):
             assert status == 200, line
             assert expect in payload["text"], (line, payload)
     finally:
-        httpd.shutdown(); httpd.server_close(); trace.close(); world.close()
+        httpd.shutdown()
+        httpd.server_close()
+        trace.close()
+        world.close()
 
 
 def test_forget_through_the_ui_actually_forgets(tmp_path):
@@ -185,7 +202,10 @@ def test_forget_through_the_ui_actually_forgets(tmp_path):
         after = json.loads(_get(httpd, "/api/state")[0])
         assert not any(m["key"] == "temp_probe" for m in after["memory"])
     finally:
-        httpd.shutdown(); httpd.server_close(); trace.close(); world.close()
+        httpd.shutdown()
+        httpd.server_close()
+        trace.close()
+        world.close()
 
 
 def test_an_unknown_command_says_so(tmp_path):
@@ -195,7 +215,10 @@ def test_an_unknown_command_says_so(tmp_path):
         assert status == 200
         assert "unknown" in payload["text"]
     finally:
-        httpd.shutdown(); httpd.server_close(); trace.close(); world.close()
+        httpd.shutdown()
+        httpd.server_close()
+        trace.close()
+        world.close()
 
 
 # --------------------------------------------------------------------- trace
@@ -210,7 +233,10 @@ def test_the_trace_endpoint_serves_the_real_file(tmp_path):
         first = json.loads(body.decode().splitlines()[0])
         assert "seq" in first and "type" in first
     finally:
-        httpd.shutdown(); httpd.server_close(); trace.close(); world.close()
+        httpd.shutdown()
+        httpd.server_close()
+        trace.close()
+        world.close()
 
 
 def test_the_events_panel_is_built_from_the_trace(tmp_path):
@@ -222,7 +248,10 @@ def test_the_events_panel_is_built_from_the_trace(tmp_path):
         assert payload["events"], "no events after a turn"
         assert all("label" in e and "seq" in e for e in payload["events"])
     finally:
-        httpd.shutdown(); httpd.server_close(); trace.close(); world.close()
+        httpd.shutdown()
+        httpd.server_close()
+        trace.close()
+        world.close()
 
 
 # ------------------------------------------------------- the architectural rule
@@ -265,7 +294,10 @@ def test_snapshot_carries_no_secret(tmp_path):
         assert "api_key" not in body.lower()
         assert "bearer" not in body.lower()
     finally:
-        httpd.shutdown(); httpd.server_close(); trace.close(); world.close()
+        httpd.shutdown()
+        httpd.server_close()
+        trace.close()
+        world.close()
 
 
 # ------------------------------------------- a finished session must not look live
@@ -286,7 +318,10 @@ def test_a_terminal_session_offers_no_approval(tmp_path):
         assert payload["terminal"] is True
         assert payload["pending"] is None, "a finished session showed a live approval"
     finally:
-        httpd.shutdown(); httpd.server_close(); trace.close(); world.close()
+        httpd.shutdown()
+        httpd.server_close()
+        trace.close()
+        world.close()
 
 
 def test_clearing_the_approval_does_not_break_outcome_attribution():
@@ -309,7 +344,6 @@ def test_state_reads_do_not_queue_behind_a_running_turn(tmp_path):
     A turn runs for the length of a model call, so the only endpoint that can say what
     is happening was blocked exactly while something was happening.
     """
-    import threading
     import time
 
     httpd, orch, watcher, trace, world = _ui(tmp_path)
@@ -325,11 +359,15 @@ def test_state_reads_do_not_queue_behind_a_running_turn(tmp_path):
         finally:
             httpd.RequestHandlerClass.lock.release()
     finally:
-        httpd.shutdown(); httpd.server_close(); trace.close(); world.close()
+        httpd.shutdown()
+        httpd.server_close()
+        trace.close()
+        world.close()
 
 
 def test_a_turn_still_serialises_writes(tmp_path):
-    """Reads may be concurrent; two turns still must not interleave."""
+    """Reads may be concurrent
+    two turns still must not interleave."""
     httpd, orch, watcher, trace, world = _ui(tmp_path)
     try:
         results: list[int] = []
@@ -345,7 +383,10 @@ def test_a_turn_still_serialises_writes(tmp_path):
         assert all(status == 200 for status in results), results
         assert orch.session.turns == 3
     finally:
-        httpd.shutdown(); httpd.server_close(); trace.close(); world.close()
+        httpd.shutdown()
+        httpd.server_close()
+        trace.close()
+        world.close()
 
 
 def test_progress_is_exposed_from_the_trace(tmp_path):
@@ -358,15 +399,20 @@ def test_progress_is_exposed_from_the_trace(tmp_path):
         assert payload["progress"]["text"], payload["progress"]
         assert payload["progress"]["state"], payload["progress"]
     finally:
-        httpd.shutdown(); httpd.server_close(); trace.close(); world.close()
+        httpd.shutdown()
+        httpd.server_close()
+        trace.close()
+        world.close()
 
 
 def test_polling_during_a_turn_returns_a_consistent_snapshot(tmp_path):
-    """Snapshot copies what it reads; a mid-turn poll must not raise."""
+    """Snapshot copies what it reads
+    a mid-turn poll must not raise."""
     httpd, orch, watcher, trace, world = _ui(tmp_path)
     try:
         errors: list[str] = []
-        import threading, time
+        import threading
+        import time
         stop = threading.Event()
         def poll():
             while not stop.is_set():
@@ -378,7 +424,11 @@ def test_polling_during_a_turn_returns_a_consistent_snapshot(tmp_path):
         poller = threading.Thread(target=poll, daemon=True)
         poller.start()
         _post(httpd, "/api/turn", {"text": "Find a plumber in Koramangala this week"})
-        stop.set(); poller.join(timeout=5)
+        stop.set()
+        poller.join(timeout=5)
         assert not errors, errors[:3]
     finally:
-        httpd.shutdown(); httpd.server_close(); trace.close(); world.close()
+        httpd.shutdown()
+        httpd.server_close()
+        trace.close()
+        world.close()

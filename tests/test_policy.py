@@ -17,7 +17,6 @@ from errand.policy import (
     assert_tool_allowed,
     legal_tools,
     missing_slots,
-    transition_allowed,
 )
 
 # The expected allow/deny matrix, written out longhand. If the implementation and
@@ -93,7 +92,7 @@ def test_terminal_is_a_sink():
 
 
 def test_no_transition_targets_an_unknown_state():
-    for src, dsts in TRANSITIONS.items():
+    for _src, dsts in TRANSITIONS.items():
         for dst in dsts:
             assert isinstance(dst, State)
 

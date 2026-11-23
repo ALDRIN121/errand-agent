@@ -84,7 +84,7 @@ class Tracer:
         except ValueError:
             pass
 
-    def __enter__(self) -> "Tracer":
+    def __enter__(self) -> Tracer:
         return self
 
     def __exit__(self, *exc) -> None:

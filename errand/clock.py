@@ -1,7 +1,7 @@
 """Time. Every timestamp in the codebase comes from here, never from datetime.now()."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Protocol
 
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -14,7 +14,7 @@ class Clock(Protocol):
 
 class RealClock:
     def now(self) -> datetime:
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
 
     def monotonic(self) -> float:
         import time

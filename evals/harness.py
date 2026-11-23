@@ -1,4 +1,4 @@
-"""The eval harness: run all 37 scenarios, check 10 invariants, emit the table.
+"""The eval harness: run all 45 scenarios, check 11 invariants, emit the table.
 
 Two artefacts, both generated rather than written:
 
@@ -14,7 +14,6 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from errand.policy import SIDE_EFFECTING, State
 from evals.runner import RunResult, run_scenario
 from evals.scenarios import CORE, WATCHER, Scenario
 

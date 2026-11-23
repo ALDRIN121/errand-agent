@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from math import ceil
 
-from errand.memory import Memory, MemoryStore
+from errand.memory import MemoryStore
 from errand.policy import State, legal_tools
 
 ESTIMATOR = "len4"

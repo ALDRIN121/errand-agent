@@ -139,7 +139,7 @@ def transition_allowed(src: State, dst: State) -> bool:
 # how the orchestrator's `_admit` leaves it for SEARCHING. Without this distinction the
 # prompt truthfully said "no tools" and a real model could only ask a question it did
 # not need to ask, burning a turn against MAX_CLARIFY_TURNS.
-PROPOSABLE: dict["State", frozenset[str]] = {
+PROPOSABLE: dict[State, frozenset[str]] = {
     State.NEW: frozenset({"search_providers", "list_bookings", "get_provider",
                           "web_search"}),
     State.CLARIFYING: frozenset({"search_providers", "list_bookings", "get_provider",
@@ -148,7 +148,7 @@ PROPOSABLE: dict["State", frozenset[str]] = {
 
 # hold_slot is only admitted when it names a provider; spelled out so the prompt can
 # say so rather than inviting a call that will be refused.
-PROPOSAL_NOTES: dict["State", str] = {
+PROPOSAL_NOTES: dict[State, str] = {
     State.NEW: "you may propose search_providers with service, area and date_range "
                "even though nothing is dispatched yet; that is how the search starts",
     State.CLARIFYING: "propose search_providers with the details you now have",
@@ -157,7 +157,7 @@ PROPOSAL_NOTES: dict["State", str] = {
 }
 
 
-def proposable(state: "State") -> frozenset[str]:
+def proposable(state: State) -> frozenset[str]:
     """Tools a model may propose here, dispatched or admissible."""
     return PROPOSABLE.get(state) or legal_tools(state)
 

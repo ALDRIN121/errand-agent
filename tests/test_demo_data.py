@@ -8,20 +8,19 @@ longer matches the code.
 from __future__ import annotations
 
 import json
+import json as _json
+import pathlib as _pathlib
 
 import pytest
 
-from errand.clock import FakeClock
 from errand.classify import classify
-from errand.policy import SIDE_EFFECTING, State, legal_tools
+from errand.clock import FakeClock
 from evals.demo_data import ANCHOR, build_world, load_fixture, slot_at
 
 FIXTURE = load_fixture()
 
 # G3: narration lives in its own file; the world file holds users, bookings,
 # reviews and the prior conversation only.
-import json as _json
-import pathlib as _pathlib
 
 _DIALOGUE_PATH = _pathlib.Path(__file__).resolve().parents[1] / "evals" / "fixtures" / "demo_dialogues.json"
 DIALOGUES = _json.loads(_DIALOGUE_PATH.read_text())["dialogues"]
@@ -111,7 +110,7 @@ def test_dialogues_alternate_and_start_with_the_user():
     for ex in DIALOGUES:
         turns = ex["turns"]
         assert turns[0]["role"] == "user", ex["id"]
-        for a, b in zip(turns, turns[1:]):
+        for a, b in zip(turns, turns[1:], strict=False):
             assert a["role"] != b["role"], ex["id"]
 
 

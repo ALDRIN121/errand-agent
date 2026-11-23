@@ -14,16 +14,16 @@ by construction rather than by good behaviour:
 from __future__ import annotations
 
 import inspect
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from datetime import datetime
+from typing import Any
 
 from errand.policy import PolicyViolation, State, assert_tool_allowed
-from datetime import datetime
-
 from errand.tools.mock import MockToolServer
-from errand.types import Slot
 from errand.trace import Tracer
-from errand.types import ToolError
+from errand.types import Slot, ToolError
+
 
 # Argument names each tool accepts, derived from the server so the contract cannot
 # drift from the implementation.

@@ -83,7 +83,7 @@ def test_memory_command_lists_admissible_rows(monkeypatch, capsys):
         try:
             return next(lines)
         except StopIteration:
-            raise EOFError
+            raise EOFError from None
 
     monkeypatch.setattr("builtins.input", fake_input)
     with pytest.raises(SystemExit):
@@ -144,7 +144,7 @@ def test_script_mode_replays_a_real_scenario(monkeypatch, capsys):
         try:
             return next(lines)
         except StopIteration:
-            raise EOFError
+            raise EOFError from None
 
     monkeypatch.setattr("builtins.input", fake_input)
     # the session reaches TERMINAL and the loop exits normally, so no SystemExit

@@ -6,19 +6,17 @@ you mean?" arrived with no providers listed, and an unanswerable area produced f
 questions in a row.
 """
 
+import datetime
+
 from errand.clock import FakeClock
 from errand.orchestrator import MAX_CLARIFY_TURNS, Orchestrator
-from evals.demo_data import build_world
-
-import datetime
 
 
 def _orch():
     """A real orchestrator, assembled exactly as the runner assembles one."""
+    from errand.approval import ApprovalStore
     from errand.context import ContextAssembler
     from errand.llm import ScriptedLLM
-    from errand.orchestrator import Orchestrator
-    from errand.approval import ApprovalStore
     from evals.runner import build_world
 
     clock = FakeClock(datetime.datetime(2026, 11, 23, 8, 0))
@@ -51,11 +49,11 @@ def test_a_question_about_a_service_with_nothing_to_offer_names_what_exists():
 
 
 def test_the_unknown_area_question_carries_the_areas():
-    from evals.scenarios import SCENARIOS
-    from evals.runner import run_scenario
-
     import pathlib
     import tempfile
+
+    from evals.runner import run_scenario
+    from evals.scenarios import SCENARIOS
     scenario = [s for s in SCENARIOS if s.id == 43][0]
     directory = pathlib.Path(tempfile.mkdtemp())
     run_scenario(scenario, trace_dir=directory)
@@ -67,11 +65,11 @@ def test_the_unknown_area_question_carries_the_areas():
 
 def test_the_stop_sentence_names_what_was_missing():
     """'Some details are missing' is true and useless."""
-    from evals.scenarios import SCENARIOS
-    from evals.runner import run_scenario
-
     import pathlib
     import tempfile
+
+    from evals.runner import run_scenario
+    from evals.scenarios import SCENARIOS
     scenario = [s for s in SCENARIOS if s.id == 43][0]
     result = run_scenario(scenario, trace_dir=pathlib.Path(tempfile.mkdtemp()))
     assert result.outcome == "aborted_missing_details"

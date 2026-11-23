@@ -50,12 +50,13 @@ def test_the_mock_is_the_only_place_side_effects_are_implemented():
 
 
 def test_side_effecting_tools_are_called_only_from_the_orchestrator_path():
-    """Every `.book(`/`.cancel(`/`.reschedule(` call site must be in orchestrator.py.
+    """Every `.book(`/`.cancel(`/`.reschedule(` call site must be in the approved path.
 
-    The orchestrator routes them through `ApprovalStore.execute_if_approved`, which is
-    the monopoly. A call site anywhere else is a second door.
+    `execution.py` is the one module that builds the callable handed to
+    `ApprovalStore.execute_if_approved`; `orchestrator.py` reaches it only through that
+    function. A call site anywhere else is a second door.
     """
-    allowed = {"orchestrator.py", "approval.py", "mock.py"}
+    allowed = {"execution.py", "approval.py", "mock.py"}
     offenders = []
     for name, tree in _sources().items():
         if name.split("/")[-1] in allowed:
@@ -126,7 +127,6 @@ def test_no_module_reads_the_wall_clock_directly():
 
 def test_runtime_dependencies_stay_empty():
     """The design claims no third-party runtime deps; prove it."""
-    import json
 
     pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
     if not pyproject.exists():
@@ -152,6 +152,6 @@ def test_llm_transport_is_stdlib_only():
     third_party = {
         m for m in modules
         if m not in ("__future__", "json", "urllib", "ssl", "pathlib", "dataclasses",
-                      "typing", "errand")
+                                  "typing", "collections", "errand")
     }
     assert not third_party, f"llm.py imports {third_party}"

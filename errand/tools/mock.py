@@ -13,7 +13,8 @@ import random
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from errand.clock import Clock, IST
+from errand.clock import IST, Clock
+from errand.tools import payloads
 from errand.types import (
     Booking,
     Hold,
@@ -23,7 +24,6 @@ from errand.types import (
     ToolCallRecord,
     ToolError,
 )
-from errand.tools import payloads
 
 FIXTURE = Path(__file__).resolve().parents[2] / "evals" / "fixtures" / "providers.json"
 

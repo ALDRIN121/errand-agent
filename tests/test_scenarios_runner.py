@@ -1,4 +1,4 @@
-"""The Phase 4 gate: every core scenario passes and every invariant holds.
+"""Every scenario passes and every invariant holds, checked over the traces.
 
 This test is the gate, so it must fail for the right reason. It runs the scenarios
 through the real harness rather than asserting on hand-written expectations.
@@ -35,7 +35,7 @@ def test_watcher_scenario_passes(scenario):
 
 
 def test_the_gate_is_now_45_of_45():
-    """Phase 5 closes the two the Phase 4 gate deferred."""
+    """The unattended provider-cancel scenarios pass with the watcher wired in."""
     reports = [evaluate(s, include_watcher=True) for s in SCENARIOS]
     assert len(reports) == 45
     failing = [r.scenario.id for r in reports if not r.outcome_ok]

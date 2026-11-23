@@ -10,7 +10,7 @@ requires-python = ">=3.11"
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-timeout>=2"]
+dev = ["pytest>=8", "pytest-timeout>=2", "pytest-cov>=7", "ruff>=0.6"]
 
 [project.scripts]
 errand = "errand.cli:main"
@@ -21,3 +21,28 @@ include = ["errand*"]
 [tool.pytest.ini_options]
 testpaths = ["tests", "evals"]
 addopts = "-q"
+
+# Lint is a gate, not a preference: `ruff check .` is expected to be clean, in CI and
+# locally. E501 is off because the code is prose-heavy by design; F401/F841 stay on so
+# a dropped guard (`missing = ...` with nothing downstream) cannot hide as style.
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = [
+    "E501",   # prose-heavy docstrings and comments; the formatter is not the gate
+    "B017",   # pytest.raises(Exception) is deliberate where the check is "it refuses"
+    "UP042",  # State(str, Enum) is load-bearing: str(State.NEW) must stay "NEW"
+]
+
+# A floor, not a target: 86% locally, and the number moves a point or two across
+# Python versions. Failing below 84 catches a module quietly dropping out of the
+# suite without making an unrelated interpreter bump look like a regression.
+[tool.coverage.run]
+source = ["errand"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 84

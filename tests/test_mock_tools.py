@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from errand.clock import IST, FakeClock
+from errand.clock import FakeClock
 from errand.tools.mock import SCENARIOS, MockToolServer
 from errand.types import ToolError
 

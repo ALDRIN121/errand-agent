@@ -11,7 +11,6 @@ and reschedule, so the token alone cannot tell the user what happened.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 
 from errand.approval import PendingAction
 
@@ -143,7 +142,7 @@ def render_outcome(token: str, ctx: OutcomeContext | None = None) -> str:
         )
 
     if token == "abandoned_by_user":
-        return f"Stopped at your request. Nothing has been booked or charged."
+        return "Stopped at your request. Nothing has been booked or charged."
 
     if token == "cancelled":
         # A distinct token from `abandoned_by_user`: the user answered our offer and

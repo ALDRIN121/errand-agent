@@ -22,7 +22,7 @@ import mimetypes
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import urlparse
 
 from errand.orchestrator import Orchestrator
 from errand.trace import read_trace
@@ -161,7 +161,6 @@ _LABELS = {
     "timeout": "timeout",
     "status_check": "status check",
     "terminal": "terminal",
-    "loop_detected": "loop stopped",
     "proactive": "proactive",
 }
 

@@ -19,9 +19,10 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import Callable, Literal, TypeVar
+from datetime import UTC, datetime, timedelta
+from typing import Literal, TypeVar
 
 from errand.clock import Clock
 from errand.db import Database, dumps, loads
@@ -61,8 +62,8 @@ class PendingAction:
             "kind": self.kind,
             "provider_id": self.provider_id,
             "service": self.service,
-            "slot_start": self.slot_start.astimezone(timezone.utc).isoformat(),
-            "slot_end": self.slot_end.astimezone(timezone.utc).isoformat(),
+            "slot_start": self.slot_start.astimezone(UTC).isoformat(),
+            "slot_end": self.slot_end.astimezone(UTC).isoformat(),
             "price_paise": int(self.price_paise),
             "booking_id": self.booking_id,
             "attempt": int(self.attempt),
@@ -97,7 +98,7 @@ class PendingAction:
         )
 
     @classmethod
-    def from_row(cls, raw: str) -> "PendingAction":
+    def from_row(cls, raw: str) -> PendingAction:
         d = loads(raw, {})
         return cls(
             kind=d["kind"],

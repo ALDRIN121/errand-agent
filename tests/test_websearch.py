@@ -13,9 +13,9 @@ import pytest
 from errand.approval import ApprovalStore
 from errand.clock import FakeClock
 from errand.context import ContextAssembler
-from errand.llm import ScriptedLLM, Action
+from errand.llm import Action, ScriptedLLM
 from errand.orchestrator import Orchestrator
-from errand.policy import State, legal_tools, assert_tool_allowed, PolicyViolation
+from errand.policy import PolicyViolation, State, assert_tool_allowed, legal_tools
 from errand.tools.gateway import Gateway
 from errand.tools.mock import MockToolServer
 from errand.tools.websearch import WebSearch, detect_injection
@@ -164,7 +164,8 @@ def test_a_search_hit_reaches_the_reply_and_no_slot(tmp_path):
             assert fragment not in dumped, f"{fragment!r} leaked into slots"
         assert orch.session.state is not State.TERMINAL
     finally:
-        tracer.close(); world.close()
+        tracer.close()
+        world.close()
 
 
 def test_a_hostile_page_cannot_change_a_tool_argument(tmp_path):
@@ -200,7 +201,8 @@ def test_a_hostile_page_cannot_change_a_tool_argument(tmp_path):
             assert "evil.example" not in str(value), key
         assert before.get("service") == orch.session.slots.get("service")
     finally:
-        tracer.close(); world.close()
+        tracer.close()
+        world.close()
 
 
 def test_detection_is_recorded_but_never_used_to_decide(tmp_path):
@@ -233,11 +235,12 @@ def test_research_returns_to_where_the_user_was(tmp_path):
         web=FakeSearch(hits),
     )
     try:
-        result = orch.handle_turn("find a plumber in koramangala, any reviews?")
+        orch.handle_turn("find a plumber in koramangala, any reviews?")
         assert orch.session.state is State.SELECTING, orch.session.state
         assert len(orch.search_hits) == 1
     finally:
-        tracer.close(); world.close()
+        tracer.close()
+        world.close()
 
 
 def test_no_hits_is_reported_as_a_search_result_not_a_booking_problem(tmp_path):
@@ -248,7 +251,8 @@ def test_no_hits_is_reported_as_a_search_result_not_a_booking_problem(tmp_path):
         result = orch.handle_turn("look up nothing at all")
         assert "found nothing" in (result.reply or "").lower()
     finally:
-        tracer.close(); world.close()
+        tracer.close()
+        world.close()
 
 
 # --------------------------------------------------------- the offline backend
@@ -281,7 +285,6 @@ def test_mock_search_is_repeatable():
 
 def test_mock_search_can_fail_on_purpose():
     from errand.tools.websearch import MockWebSearch, hits_from
-
     from errand.types import ToolError
 
     web = MockWebSearch(hits=hits_from(()), failing=True)

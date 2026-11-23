@@ -1,7 +1,7 @@
 """Phase 2 gate, part 2: the approval digest and the consume-once rule."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -62,7 +62,7 @@ def test_digest_changes_on_every_material_field(field, value):
 
 def test_digest_survives_timezone_representation():
     """The same instant expressed differently must hash the same."""
-    utc = datetime(2026, 11, 24, 3, 30, tzinfo=timezone.utc)
+    utc = datetime(2026, 11, 24, 3, 30, tzinfo=UTC)
     ist = utc.astimezone(IST)
     a = action(slot_start=utc, slot_end=utc + timedelta(hours=1))
     b = action(slot_start=ist, slot_end=ist + timedelta(hours=1))

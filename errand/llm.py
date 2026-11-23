@@ -14,8 +14,9 @@ import json
 import ssl
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable, Literal, Protocol
+from typing import Literal, Protocol
 
 from errand.policy import CONTRACT_TOOLS, PROPOSAL_NOTES, SIDE_EFFECTING, proposable
 
@@ -56,7 +57,7 @@ class Action:
         )
 
     @classmethod
-    def from_dict(cls, d: dict) -> "Action":
+    def from_dict(cls, d: dict) -> Action:
         return cls(tool=d.get("tool"), args=d.get("args") or {}, message=d.get("message"))
 
 

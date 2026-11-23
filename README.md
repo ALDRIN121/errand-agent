@@ -1,5 +1,7 @@
 # Errand Agent
 
+[![checks](https://github.com/ALDRIN121/errand-agent/actions/workflows/checks.yml/badge.svg)](https://github.com/ALDRIN121/errand-agent/actions/workflows/checks.yml)
+
 A chat agent that arranges home-service errands against a deliberately unreliable
 mock provider environment. Built as a worked example of *the model proposes, the
 runtime disposes*: the model chooses among actions the current state permits, and
@@ -19,8 +21,15 @@ Complete — 527 tests, 45/45 eval scenarios, offline by default.
 ## Run
 
 ```sh
-python -m pytest -q          # tests + eval scenarios
+python -m pytest -q          # tests + eval scenarios, offline
 python -m errand             # interactive chat
+```
+
+Checks, also run by CI on every push:
+
+```sh
+ruff check .                                              # lint
+python -m pytest --cov=errand --cov-fail-under=84         # 86% covered
 ```
 
 ## What it guarantees

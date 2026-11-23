@@ -18,24 +18,37 @@ sentences, so it cannot invent a constraint the user did not state.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
 
+from errand.admission import admit
 from errand.approval import ApprovalMissing, ApprovalStore, PendingAction
+from errand.areas import known_areas, resolve_area
 from errand.classify import classify, has_new_constraint
 from errand.clock import Clock
 from errand.context import ContextAssembler
 from errand.db import Database, dumps, loads
+from errand.dialogue import ask_which, elsewhere
+from errand.execution import after_verify, execute_approved
 from errand.history import History
 from errand.llm import Action, LLMClient, LLMError, ScriptExhausted
 from errand.memory import MemoryStore
 from errand.outcomes import OutcomeContext, render_outcome
-from errand.policy import State, legal_tools, missing_slots, transition_allowed
+from errand.policy import State, missing_slots, transition_allowed
+from errand.recovery import find_replacement
+from errand.session import Session, TurnResult
 from errand.tools.gateway import Gateway
 from errand.tools.mock import MockToolServer
 from errand.trace import Tracer
-from errand.types import Booking, Hold, ToolError
+from errand.types import Booking, Hold
+from errand.wording import (
+    action_message_for,
+    default_prompt,
+    is_manage_request,
+    plain_slots,
+    service_from,
+    summarise,
+)
 
 TURN_BUDGET = 16
 TOOL_BUDGET = 20
@@ -64,30 +77,6 @@ PROGRESS: dict[str, str] = {
     "retry": "A transient error; retrying once",
     "done": "Done",
 }
-
-
-@dataclass
-class TurnResult:
-    state: State
-    reply: str | None
-    tool: str | None
-    outcome: str | None = None
-    sentence: str | None = None
-    refused: str | None = None
-
-
-@dataclass
-class Session:
-    id: str
-    user_id: str
-    state: State = State.NEW
-    slots: dict = field(default_factory=dict)
-    outcome: str | None = None
-    outcome_verb: str | None = None
-    turns: int = 0
-    tool_calls: int = 0
-    clarify_turns: int = 0
-    recovery_declined: str | None = None
 
 
 class Orchestrator:
@@ -267,7 +256,6 @@ class Orchestrator:
         The step cap is the turn budget; a loop that hits it ends with a token.
         """
         last: TurnResult | None = None
-        seen: set[str] = set()
         for _ in range(MAX_STEPS_PER_TURN):
             if self.session.state in (State.AWAITING_APPROVAL, State.TERMINAL):
                 break
@@ -352,7 +340,7 @@ class Orchestrator:
             )
         except ScriptExhausted:
             raise
-        except LLMError as exc:
+        except LLMError:
             self._terminal("tool_failure", )
             return self._result(None, None)
         if self.tracer:
@@ -379,98 +367,6 @@ class Orchestrator:
         self.history.append("assistant", text)
         return self._result(None, text)
 
-    def _admit(self, action: Action) -> TurnResult:
-        """Leave NEW/CLARIFYING by reading the slots out of the model's arguments.
-
-        A proposal that carries the missing slots is the model's answer to the
-        question, in structured form. If it does not carry them, the turn becomes a
-        CLARIFYING turn and the question is the model's own message.
-        """
-        name = action.tool or ""
-        args = action.args or {}
-
-        if name in ("book", "cancel", "reschedule"):
-            # Opening an approval is not executing: _open_approval raises the ask and
-            # the user still has to say yes. `book` with no hold has nothing to ask
-            # about, so that one is refused.
-            return self._open_approval(action)
-
-        if name == "web_search":
-            if not str(args.get("query") or "").strip():
-                msg = "What should I look up?"
-                self._clarify(msg)
-                return self._result(name, msg)
-            return self._open_research(action)
-
-        if name == "list_bookings":
-            if self.session.state is not State.DISCOVERING:
-                self._transition(State.DISCOVERING)
-            return self._dispatch(action)
-
-        if name == "search_providers":
-            service = args.get("service")
-            area = args.get("area")
-            window = args.get("date_range")
-            # area was already resolved and validated before admission.
-            if self.session.state is State.SELECTING and service and area:
-                # "same electrician as last time" resolves a provider, then searches
-                # their free slots: the target slots are known, so SELECTING -> SEARCHING
-                # is the right hop before asking the tool.
-                self.session.slots.setdefault("service", service)
-                self.session.slots.setdefault("area", area)
-                self._transition(State.SEARCHING)
-                return self._dispatch(action)
-            # date_range is optional in the contract (the mock defaults to the next 7
-            # days), so a proposal with service+area alone is a complete search. Demanding
-            # all three parked a real model in CLARIFYING indefinitely.
-            if service and area and window is not None:
-
-                self.session.slots.update(
-                    service=service, area=area,
-                    window_start=window.get("start") if isinstance(window, dict) else window,
-                    window_end=window.get("end") if isinstance(window, dict) else window,
-                )
-                self.session.slots.pop("reason", None)
-                self._transition(State.SEARCHING)
-                return self._dispatch(action)
-            if service and area:
-                # no window given: search the default range
-                self.session.slots.update(service=service, area=area)
-                self.session.slots.pop("reason", None)
-                self._transition(State.SEARCHING)
-                return self._dispatch(action)
-            # incomplete proposal: treat as a clarifying turn, and make it answerable
-            known = known_areas(self.server)
-            if not area:
-                options = ", ".join(known)
-                msg = (f"Which area did you mean? I serve {options}."
-                       if options else "Which area did you mean?")
-                return self._clarify(msg)
-            missing = missing_slots(self.session.slots)
-            msg = action.message or self._ask_which(service=service, area=None)
-            return self._clarify(msg)
-
-        if name in ("hold_slot", "get_provider"):
-            # A user who names a provider ("book prov_06 for tomorrow") makes holding
-            # a legitimate opening step; so does a reschedule, which must hold the
-            # target slot before the user is asked to approve the move.
-            if args.get("provider_id"):
-                if self.session.state in (State.NEW, State.CLARIFYING, State.DISCOVERING):
-                    self._transition(State.SELECTING)
-                return self._dispatch(action)
-            msg = action.message or self._ask_which(
-                service=self.session.slots.get("service"),
-                area=self.session.slots.get("area"))
-            return self._clarify(msg)
-
-        # get_booking_status makes no sense before anything is in flight
-        known = known_areas(self.server)
-        msg = action.message or (
-            f"I need the service and area before I can search. I serve "
-            f"{', '.join(known)} for plumbers, electricians and AC service."
-            if known else "I need the service and area before I can search.")
-        return self._clarify(msg)
-
     def _clarify(self, msg: str, *, repeat: bool = False) -> TurnResult:
         """Ask the user something and make the question visible.
 
@@ -480,7 +376,7 @@ class Orchestrator:
         """
         if self.session.clarify_turns >= MAX_CLARIFY_TURNS and not repeat:
             # Already asked once this turn. Do not ask again: leave with a sentence.
-            missing = _plain_slots(missing_slots(self.session.slots))
+            missing = plain_slots(missing_slots(self.session.slots))
             self.session.slots["reason"] = (
                 f"I asked once and did not get {missing or 'the details'} — say the word "
                 "and I will pick it straight up"
@@ -504,7 +400,7 @@ class Orchestrator:
         if self.session.clarify_turns > MAX_CLARIFY_TURNS:
             # Say what was still missing. "Some details" is true and useless; the user
             # is owed the name of the thing the agent gave up waiting for.
-            missing = _plain_slots(missing_slots(self.session.slots))
+            missing = plain_slots(missing_slots(self.session.slots))
             self.session.slots["reason"] = (
                 f"I asked once and did not get {missing or 'the details'} — say the word "
                 "and I will pick it straight up"
@@ -518,49 +414,12 @@ class Orchestrator:
 
     def _ask_which(self, *, service: str | None, area: str | None,
                    what: str = "provider") -> str:
-        """Ask for a choice, and put the real choices in the question.
-
-        "Which provider do you mean?" is unanswerable unless the user already knows the
-        inventory — the question hands the work straight back. Every question this agent
-        asks names what it can offer, for the same reason an empty result does.
-        """
-        providers = list((getattr(self.server, "_providers", None) or {}).values())
-        rows = [p for p in providers
-                if (service is None or p.service == service)
-                and (area is None or p.area == area)]
-        rows.sort(key=lambda p: (-p.rating, p.price_paise, p.id))
-        if not rows:
-            elsewhere = self._elsewhere(area=area, service=service)
-            if elsewhere:
-                return (f"I have no {service or 'provider'} in {area or 'that area'} to "
-                        f"offer. I can offer {elsewhere}. Which would you like?")
-            return "Which area and service did you have in mind?"
-        lines = [f"{p.id}: {p.service.replace('_', ' ')} in {p.area}, rating {p.rating}, "
-                 f"Rs {p.price_paise // 100:,}" for p in rows[:5]]
-        options = "\n".join(lines)
-        return f"Which {what} did you mean? I have:\n{options}"
+        """Ask for a choice, with the real choices in the question."""
+        return ask_which(self.server, service=service, area=area, what=what)
 
     def _elsewhere(self, *, area: str | None, service: str | None) -> str:
-        """What the world does serve, phrased as an offer the user can act on.
-
-        Read from the provider table, not from a hand-written map: the point is to
-        describe the one world this run is actually against.
-        """
-        providers = list((getattr(self.server, "_providers", None) or {}).values())
-        if not providers:
-            return ""
-        by_area: dict[str, set[str]] = {}
-        for p in providers:
-            by_area.setdefault(p.area, set()).add(p.service)
-        lines = []
-        for other in sorted(by_area):
-            if area and other == area:
-                continue                    # they already know about this one
-            services = ", ".join(sorted(s.replace("_", " ") for s in by_area[other]))
-            lines.append(f"{other} ({services})")
-        if not lines:
-            return ""
-        return "; ".join(lines[:4])
+        """What the world does serve, phrased as an offer the user can act on."""
+        return elsewhere(self.server, area=area, service=service)
 
     _PROGRESS_FOR = {
         "search_providers": "searching",
@@ -611,7 +470,7 @@ class Orchestrator:
             self._terminal("tool_failure")
             self.session.slots["reason"] = result.error.detail
             return self._result(name, None)
-        self.last_tool_result = _summarise(name, result.value)
+        self.last_tool_result = summarise(name, result.value)
         if self.tracer:
             self.tracer.emit("tool_result_summary", tool=name,
                              chars=len(self.last_tool_result or ""))
@@ -649,7 +508,7 @@ class Orchestrator:
         # DISCOVERING is included because resolving a booking leaves the session there,
         # and the next legitimate step (holding the target slot) happens in SELECTING.
         if self.session.state in (State.NEW, State.CLARIFYING, State.DISCOVERING):
-            return self._admit(action)
+            return admit(self, action)
 
         # A search is legal from SELECTING too: after resolving a provider
         # ("the same electrician as last time") the next step is to look at their
@@ -671,7 +530,7 @@ class Orchestrator:
         if name in ("book", "cancel", "reschedule"):
             if self.pending is None:
                 return self._open_approval(action)
-            return self._execute_approved(action)
+            return execute_approved(self, action)
 
         return self._dispatch(action)
 
@@ -778,7 +637,7 @@ class Orchestrator:
                 self.session.slots["manage_kind"] = (
                     "cancel" if "cancel" in self.session.slots.get("last_user", "").lower()
                     else "reschedule"
-                ) if _is_manage_request(self.session.slots.get("last_user", "")) else None
+                ) if is_manage_request(self.session.slots.get("last_user", "")) else None
                 self.session.slots["service"] = booking.service
                 self.session.slots["area"] = booking.area
                 # A resolved booking needs no search: the next step is to hold the
@@ -830,7 +689,7 @@ class Orchestrator:
             return self._result(name, self.pending_text)
 
         if name == "get_booking_status":
-            return self._after_verify(value)
+            return after_verify(self, value)
 
         raise RuntimeError(f"no handler for tool {name}")
 
@@ -905,98 +764,7 @@ class Orchestrator:
         if self.session.state is not State.EXECUTING:
             self._transition(State.EXECUTING)
         # only the approved verb may run, and only through the approval store
-        return self._execute_approved(Action(self.pending.kind, {}, None))
-
-    def _execute_approved(self, action: Action) -> TurnResult:
-        name = action.tool or ""
-        self._attribute(name, action.args)
-        live = self.pending
-        if live is None or live.kind != name:
-            msg = "Nothing is held for me to do that. Confirm the details and I will ask again."
-            self.history.append("assistant", msg)
-            return self._result(name, msg, refused="no pending approval")
-
-        def _call():
-            if name == "book":
-                assert self.hold is not None
-                return self.server.book(self.hold.hold_id, live.idempotency_key())
-            if name == "cancel":
-                assert live.booking_id
-                return self.server.cancel(live.booking_id, live.idempotency_key())
-            assert live.booking_id
-            assert self.hold is not None
-            return self.server.reschedule(live.booking_id, self.hold.slot, live.idempotency_key())
-
-        booking = None
-        for attempt in (1, 2):  # one retry, for transient only
-            try:
-                booking = self.approvals.execute_if_approved(self.session.id, live, _call)
-                break
-            except ApprovalMissing as exc:
-                msg = "That is not approved, so I have not done it."
-                self.history.append("assistant", msg)
-                return self._result(name, msg, refused=str(exc))
-            except ToolError as exc:
-                if exc.error_class == "transient" and attempt == 1:
-                    if self.tracer:
-                        self.tracer.emit("side_effect_retry", tool=name,
-                                         error=exc.error_class, detail=exc.detail)
-                    continue
-                return self._after_side_effect_error(name, exc)
-        self.session.tool_calls += 1
-        self.approvals.consume(self.session.id)
-        self._terminal("booked", verb=name)
-        self.session.slots["reference"] = booking.booking_id
-        if self.tracer:
-            self.tracer.emit("side_effect_ok", tool=name, booking_id=booking.booking_id)
-        return self._result(name, None)
-
-    def _after_side_effect_error(self, name: str, exc: ToolError) -> TurnResult:
-        if self.tracer:
-            self.tracer.emit("side_effect_error", tool=name, error=exc.error_class)
-        if exc.error_class in ("timeout", "unexpected"):
-            # the call may have landed: never claim either way without checking
-            self._transition(State.VERIFYING)
-            self.session.slots["verify_pending"] = True
-            status = self.gateway.call(State.VERIFYING, "get_booking_status",
-                                      {"idempotency_key": self.pending.idempotency_key()}
-                                      if self.pending else {})
-            return self._after_verify(status.value if status.ok else {"status": "unknown"})
-        if exc.error_class in ("slot_taken", "slot_conflict"):
-            self._terminal(exc.error_class)
-            return self._result(name, None)
-        if exc.error_class == "hold_expired":
-            self._terminal("hold_expired")
-            return self._result(name, None)
-        self._terminal("tool_failure")
-        self.session.slots["reason"] = exc.detail
-        return self._result(name, None)
-
-    def _after_verify(self, status: dict) -> TurnResult:
-        state = status.get("status")
-        if state == "booked":
-            # This is the single most important outcome in the assignment, and it
-            # emitted no side_effect_ok: the booking exists, the run claimed success,
-            # and the trace had no record of it. Emit the confirmation explicitly.
-            if self.tracer:
-                tool = (self.pending.kind if self.pending else None) or "book"
-                self.tracer.emit(
-                    "side_effect_ok",
-                    tool=tool,
-                    booking_id=status.get("booking_id"),
-                    verified=True,
-                )
-            if self.session.outcome_verb is None and self.pending is not None:
-                self.session.outcome_verb = self.pending.kind
-            self._terminal("booked_verified_after_timeout", verb=self.session.outcome_verb)
-            self.session.slots["reference"] = status.get("booking_id")
-        elif state == "not_booked":
-            # safe to retry: one more attempt, same key
-            self._terminal("booked" if self.session.outcome else "unverified")
-        else:
-            self._terminal("unverified")
-            self.session.slots["reference"] = status.get("booking_id")
-        return self._result("get_booking_status", None)
+        return execute_approved(self, Action(self.pending.kind, {}, None))
 
     # ----------------------------------------------------------- reference resolve
 
@@ -1008,7 +776,7 @@ class Orchestrator:
         Without this the ladder matched every confirmed booking and asked a question
         the script could not have anticipated.
         """
-        wanted = self.session.slots.get("service") or _service_from(utterance)
+        wanted = self.session.slots.get("service") or service_from(utterance)
         rows = [b for b in bookings if wanted is None or b.service == wanted] if wanted else list(bookings)
         if not rows:
             return None
@@ -1071,7 +839,9 @@ class Orchestrator:
             return {"status": "ignored", "reason": "booking not found"}
 
         self.session.slots["cancelled_booking"] = booking_id
-        replacement = self._find_replacement(cancelled)
+        replacement = find_replacement(
+            self.server, self.memory, self.session.user_id, cancelled
+        )
 
         if replacement is None:
             self.session.slots["reason"] = (
@@ -1108,41 +878,6 @@ class Orchestrator:
                              replacement=provider.id, digest=pending.digest()[:12])
         return {"status": "offered", "body": body, "replacement": provider.id}
 
-    def _find_replacement(self, cancelled) -> tuple[Any, Any] | None:
-        """G2's ranking, in one place: (-rating, price, id), preference over rating.
-
-        Technician preference beats rating when one exists, because it is an explicit
-        user statement and rating is a popularity proxy.
-        """
-        pinned = {
-            m.key: m.value for m in self.memory.admissible(self.session.user_id)
-        }.get("preferred_technician")
-
-        candidates = [
-            p for p in self.server.search_providers(
-                service=cancelled.service, area=cancelled.area
-            )
-            if p.id != cancelled.provider_id
-        ]
-        if not candidates:
-            return None
-
-        slot_for = lambda p: next(
-            (s for s in p.slots if s.available and s.start.date() >= cancelled.slot.start.date()),
-            None,
-        )
-        with_slot = [(p, s) for p in candidates if (s := slot_for(p)) is not None]
-        if not with_slot:
-            return None
-
-        if pinned:
-            chosen = next((pair for pair in with_slot if pair[0].id == pinned), None)
-            if chosen is not None:
-                return chosen
-
-        with_slot.sort(key=lambda pair: (-pair[0].rating, pair[0].price_paise, pair[0].id))
-        return with_slot[0]
-
     # -------------------------------------------------------------------- renders
 
     def _sentence(self) -> str | None:
@@ -1174,159 +909,3 @@ class Orchestrator:
             sentence=sentence,
             refused=refused,
         )
-
-
-_SLOT_NAMES = {
-    "service": "the service",
-    "area": "the area",
-    "window_start": "the earliest time",
-    "window_end": "the latest time",
-}
-
-
-def _plain_slots(names: list[str]) -> str:
-    """Slot identifiers read as English. "window_start" is a name for a dict key, and a
-    user is owed a sentence rather than a schema."""
-    words = [_SLOT_NAMES.get(n, n.replace("_", " ")) for n in names]
-    if not words:
-        return ""
-    if len(words) == 1:
-        return words[0]
-    return ", ".join(words[:-1]) + " and " + words[-1]
-
-
-def known_areas(server) -> list[str]:
-    """The areas this world actually serves, derived from the providers.
-
-    Derived, not hand-written: a second copy of the map drifts, and this list is the
-    only thing that can tell "Kora" from a typo.
-    """
-    providers = getattr(server, "_providers", None) or {}
-    return sorted({p.area for p in providers.values()})
-
-
-def resolve_area(typed: str, known: list[str]) -> tuple[str | None, list[str]]:
-    """Match what a person typed against the areas we serve.
-
-    Returns (exact, candidates). `exact` is set only when the answer is not a guess:
-    a case-insensitive match, or a unique prefix. "Kora" is unambiguous; "K" is not,
-    and a wrong guess books a plumber in the wrong neighbourhood, which is worse than
-    asking. Guessing also cannot be undone by the user saying "no" — an approval built
-    on a guessed area would ask about a different booking than the one they wanted.
-
-    The vocabulary is a lookup of the areas the world serves, not language
-    understanding, in the same spirit as `_service_from`.
-    """
-    text = (typed or "").strip().lower()
-    if not text:
-        return None, known
-    for area in known:                        # exact, case-insensitive
-        if area.lower() == text:
-            return area, []
-    # A one- or two-letter prefix is not a word anyone types in earnest, and matching
-    # it would let "a" resolve to whichever area happens to start with it. Three is
-    # enough to distinguish real shorthands ("Kor", "HSR", "Ind") from noise.
-    prefixed = [a for a in known if len(text) >= 3 and a.lower().startswith(text)]
-    if len(prefixed) == 1:
-        return prefixed[0], []
-    # Substring matching needs the same floor: "k" is inside "Koramangala" and inside
-    # nothing else, which is a coincidence, not an intent.
-    contains = [a for a in known if len(text) >= 3 and text in a.lower()]
-    if len(contains) == 1:
-        return contains[0], []
-    return None, (prefixed or contains or known)
-
-
-SERVICE_WORDS = {
-    "ac_service": ("ac", "a/c", "air con", "aircon", "servicing"),
-    "plumber": ("plumb", "tap", "leak", "pipe"),
-    "electrician": ("electric", "wiring", "switchboard", "mcb", "socket"),
-}
-
-
-def _summarise(name: str, value: Any) -> str | None:
-    """A compact, model-readable rendering of a read result.
-
-    The context budget allows 500 tokens for a tool result, so the full search payload
-    cannot be replayed; the fields a choice needs are the id, the price, the rating and
-    the first free slot.
-    """
-    if value is None:
-        return None
-    if name == "search_providers":
-        rows = value.get("providers") if isinstance(value, dict) else value
-        if not rows:
-            return "No providers matched."
-        lines = []
-        for p in rows[:8]:
-            free = next((s for s in getattr(p, "slots", []) if s.available), None)
-            when = f"next free {free.start:%a %d %b %H:%M}" if free else "no free slot"
-            lines.append(f"- {p.id}: rating {p.rating}, Rs {p.price_paise // 100:,}, {when}")
-        return "Providers found:\n" + "\n".join(lines)
-    if name == "get_provider":
-        p = value
-        free = [s for s in getattr(p, "slots", []) if s.available][:6]
-        lines = [f"{p.id}: rating {p.rating}, Rs {p.price_paise // 100:,}, "
-                 f"serves {p.service} in {p.area}"]
-        if free:
-            lines.append("free slots (pass start+end to hold_slot):")
-            lines += [f"- {s.start.isoformat()} to {s.end.isoformat()}" for s in free]
-        else:
-            lines.append("no free slots")
-        return "\n".join(lines)
-    if name == "list_bookings":
-        rows = value if isinstance(value, list) else value.get("bookings", [])
-        if not rows:
-            return "No bookings on record."
-        return "Bookings:\n" + "\n".join(
-            f"- {b.booking_id}: {b.service} with {b.provider_id} "
-            f"{b.slot.start:%a %d %b %H:%M} ({b.status})"
-            for b in rows[:8]
-        )
-    if name == "get_booking_status":
-        return f"status: {value.get('status')}, booking {value.get('booking_id')}"
-    return None
-
-
-MANAGE_VERBS = ("move", "cancel", "reschedule", "change", "shift", "postpone")
-
-
-def _is_manage_request(text: str) -> bool:
-    """Whether the user asked to modify an existing booking rather than make one."""
-    low = (text or "").lower()
-    return any(v in low for v in MANAGE_VERBS)
-
-
-def _service_from(text: str) -> str | None:
-    """The service named in the user's words, or None.
-
-    A closed vocabulary, deliberately: this is a lookup of the three contract
-    services, not natural-language understanding. Ambiguous text returns None and
-    falls through to the ladder's question.
-    """
-    low = (text or "").lower()
-    hits = [svc for svc, words in SERVICE_WORDS.items() if any(w in low for w in words)]
-    return hits[0] if len(hits) == 1 else None
-
-
-def action_message_for(hold: Hold) -> str:
-    mins = int((hold.expires_at - hold.slot.start).total_seconds() // 60)
-    return (
-        f"Hold {hold.provider_id}, {hold.slot.start:%a %d %b %H:%M}-{hold.slot.end:%H:%M}, "
-        f"quoted Rs {hold.quote_paise // 100:,}. Confirm? The hold expires in 10 minutes."
-    )
-
-
-def default_prompt(pending: PendingAction) -> str:
-    if pending.kind == "cancel":
-        return f"Cancel booking {pending.booking_id} with {pending.provider_id}? No charge."
-    if pending.kind == "reschedule":
-        return (
-            f"Reschedule {pending.booking_id} to {pending.slot_start:%a %d %b %H:%M}"
-            f"-{pending.slot_end:%H:%M} with {pending.provider_id}. Confirm?"
-        )
-    return (
-        f"Book {pending.service} with {pending.provider_id}, "
-        f"{pending.slot_start:%a %d %b %H:%M}-{pending.slot_end:%H:%M}, "
-        f"quoted Rs {pending.price_paise // 100:,}. Confirm?"
-    )

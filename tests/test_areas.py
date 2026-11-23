@@ -58,10 +58,10 @@ def test_a_resolved_area_is_the_spelling_the_world_uses():
 
 def test_the_known_areas_are_derived_from_the_providers():
     """A second hand-written copy of the map would drift from the first."""
+    import datetime
+
     from errand.clock import FakeClock
     from evals.demo_data import build_world
-
-    import datetime
     world = build_world(FakeClock(datetime.datetime(2026, 11, 23, 8, 0)),
                         seed=7, scenario="happy", user_id="u_aldrin")
     areas = known_areas(world.server)
