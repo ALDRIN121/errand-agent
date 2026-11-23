@@ -100,18 +100,41 @@ def summarise(name: str, value: Any) -> str | None:
             return "No providers matched."
         lines = []
         for p in rows[:8]:
-            free = next((s for s in getattr(p, "slots", []) if s.available), None)
-            when = f"next free {free.start:%a %d %b %H:%M}" if free else "no free slot"
+            free = [s for s in getattr(p, "slots", []) if s.available]
+            if free:
+                # The days this provider can actually serve, not just the next slot.
+                # "next free Mon 23 06:00" reads as "only Monday", which is what made
+                # the model tell the user no Saturday existed while Saturday slots
+                # were sitting in the record.
+                days = list(dict.fromkeys(f"{s.start:%a %d %b}" for s in free))
+                shown = ", ".join(days[:5]) + (f" (+{len(days) - 5})" if len(days) > 5 else "")
+                when = f"free {shown}"
+            else:
+                when = "no free slot"
             lines.append(f"- {p.id}: rating {p.rating}, Rs {p.price_paise // 100:,}, {when}")
         return "Providers found:\n" + "\n".join(lines)
     if name == "get_provider":
         p = value
-        free = [s for s in getattr(p, "slots", []) if s.available][:6]
+        free = [s for s in getattr(p, "slots", []) if s.available]
         lines = [f"{p.id}: rating {p.rating}, Rs {p.price_paise // 100:,}, "
                  f"serves {p.service} in {p.area}"]
         if free:
-            lines.append("free slots (pass start+end to hold_slot):")
-            lines += [f"- {s.start.isoformat()} to {s.end.isoformat()}" for s in free]
+            # Grouped by day, one line per day. The flat first-six listing showed a
+            # whole week's worth of Monday morning and nothing else, so a model asked
+            # "does this provider have Saturday?" could only answer no — the Saturday
+            # slots existed and were never shown. A day-per-line summary fits the
+            # seven-day window in the same number of lines and is the shape the
+            # question is actually asked in.
+            lines.append("free slots by day (pass start+end to hold_slot):")
+            by_day: dict[str, list] = {}
+            for slot in free:
+                by_day.setdefault(f"{slot.start:%a %d %b}", []).append(slot)
+            for day, slots in list(by_day.items())[:7]:
+                hours = ", ".join(f"{s.start:%H:%M}" for s in slots[:8])
+                more = f" (+{len(slots) - 8} more)" if len(slots) > 8 else ""
+                lines.append(f"- {day}: {hours}{more}")
+            if len(by_day) > 7:
+                lines.append(f"  (+{len(by_day) - 7} more days)")
         else:
             lines.append("no free slots")
         return "\n".join(lines)

@@ -82,7 +82,12 @@ class MockToolServer:
                     end=datetime(2026, 11, 23 + day, hour + 1, 0, tzinfo=IST),
                     available=True,
                 )
-                for day in range(3)
+                # A full week, not three days. The contract says the mock covers the
+                # next seven days, and the demo's own headline request — "move my AC
+                # servicing to *Saturday*" — was unanswerable because no Saturday
+                # existed in the data: the model asked for a date, was told 28 Nov,
+                # searched, and correctly found nothing.
+                for day in range(7)
                 for hour in row["slot_hours"]
             ]
             self._providers[row["id"]] = Provider(

@@ -48,6 +48,7 @@ _DEMO_WEB = (
 )
 
 HELP = """commands:
+  /new               start a fresh conversation (memory is kept)
   /memory            what I remember about you
   /forget <key>      forget a stored preference
   /state             the session state and slots
@@ -238,6 +239,12 @@ def _command(line: str, orch, watcher, tracer, db) -> bool:
 
     if line == "/help":
         print(HELP)
+        return True
+
+    if line in ("/new", "/reset"):
+        session = orch.reset()
+        print(f"  new conversation started (session {session.id}). "
+              f"Memory and existing bookings are kept.")
         return True
 
     if line == "/memory":

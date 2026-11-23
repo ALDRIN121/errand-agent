@@ -72,6 +72,8 @@ class ContextAssembler:
         intent: str,
         tool_result: str | None = None,
         latest_user: str = "",
+        now: str | None = None,
+        facts: list[str] | None = None,
     ) -> tuple[list[dict], Manifest]:
         manifest = Manifest()
 
@@ -137,11 +139,26 @@ class ContextAssembler:
         )
 
         messages: list[dict] = [{"role": "system", "content": PREAMBLE}]
+        # The date, and only the date. "Move my AC servicing to Saturday" is
+        # unanswerable without knowing which week today is in: the model asked the user
+        # to supply 2026-11-21 because nothing in its context said when "now" was. It
+        # comes from the clock, so an eval run and a live run see the same instant.
+        if now:
+            messages.append({"role": "system", "content": f"Today is {now}."})
         if tools_text:
             messages.append({"role": "system", "content": tools_text})
         if mem_lines:
             messages.append(
                 {"role": "system", "content": "Known preferences:\n" + "\n".join(mem_lines)}
+            )
+        # Already-established facts about *this* request. Kept separate from memory:
+        # memory is what the user prefers in general, this is what has been resolved
+        # for this session. Without it the model re-asks a question the runtime has
+        # already answered — "which booking?" while `manage.booking` sits in slots.
+        if facts:
+            messages.append(
+                {"role": "system", "content": "Established so far:\n"
+                 + "\n".join(f"- {f}" for f in facts)}
             )
         for line in turn_lines:
             role, _, text = line.partition(": ")

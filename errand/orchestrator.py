@@ -118,12 +118,51 @@ class Orchestrator:
         # are summarised to a confirmation, never the raw payload.
         self.last_tool_result: str | None = None
         self._attempted: set[str] = set()
+        # The immediately preceding call, for consecutive-repeat detection. `_attempted`
+        # is the full set and stays as a record; only the adjacent one means "stuck".
+        self._last_fingerprint: str | None = None
         # Search hits are held here and nowhere else: their single sink is the text
         # shown to the user. They are never written to slots, arguments or memory.
         self.search_hits: list = []
         self._resume_state: State | None = None
 
     # ------------------------------------------------------------------ session
+
+    def reset(self, *, session_id: str | None = None) -> Session:
+        """Start a fresh conversation, keeping memory and the provider world.
+
+        `/new` was advertised in the UI's placeholder text and never implemented, so a
+        finished session could only be revived by restarting the process. What resets is
+        everything scoped to *this conversation* — state, slots, pending approval, hold,
+        candidates, history and the repeat-call guard. What survives is everything that
+        is not: stored memory, and the bookings already made. Those are the user's, not
+        the session's.
+        """
+        if self.pending is not None:
+            self.approvals.invalidate(self.session.id, "session restarted")
+        # Deterministic, not time-derived: the id only has to be unique within a
+        # process, and a counter keeps a replayable run replayable.
+        self._resets = getattr(self, "_resets", 0) + 1
+        new_id = session_id or f"{self.session.id}.{self._resets}"
+        self.session = self._load_or_create(new_id, self.session.user_id)
+        self.hold = None
+        self.pending = None
+        self.candidates = []
+        self.last_choice = None
+        self.last_tool_result = None
+        self._attempted = set()
+        self._last_fingerprint = None
+        self.search_hits = []
+        self._resume_state = None
+        self._last_question = ""
+        self.action_attribution = []
+        # A new conversation carries no prior turns. Keeping them would replay the old
+        # task into the new session's context, which is the "fresh chat with the old
+        # conversation still in it" the reset exists to prevent.
+        self.history.turns.clear()
+        if self.tracer:
+            self.tracer.emit("session_reset", session_id=self.session.id)
+        return self.session
 
     def _load_or_create(self, session_id: str, user_id: str) -> Session:
         row = self.db.query_one("SELECT * FROM session WHERE id=?", (session_id,))
@@ -295,6 +334,48 @@ class Orchestrator:
 
     # ------------------------------------------------------------------ the model
 
+    def _today(self) -> str:
+        """The clock's date in the user's own words: "Monday, 23 November 2026"."""
+        return f"{self.clock.now():%A, %d %B %Y}"
+
+    def _established_facts(self) -> list[str]:
+        """What this session has already resolved, as short factual lines.
+
+        The state machine knows these and the model did not: a booking resolved by
+        `list_bookings` lives in `session.slots['manage']`, so a turn that had already
+        found it could still ask the user "which booking?". Facts are derived from the
+        session on every turn rather than stored alongside it, so there is one source
+        of truth and nothing to keep in sync.
+        """
+        facts: list[str] = []
+        slots = self.session.slots or {}
+
+        manage = slots.get("manage")
+        booking = manage.get("booking") if isinstance(manage, dict) else None
+        if booking is not None:
+            when = getattr(booking, "slot", None)
+            facts.append(
+                f"the booking being managed is {booking.booking_id} "
+                f"({booking.service} with {booking.provider_id}"
+                + (f", currently {when.start:%a %d %b %H:%M}" if when else "")
+                + ")"
+            )
+            if slots.get("manage_kind"):
+                facts.append(f"the user wants to {slots['manage_kind']} it")
+
+        if self.hold is not None:
+            facts.append(
+                f"slot {self.hold.slot.start:%a %d %b %H:%M}"
+                f"-{self.hold.slot.end:%H:%M} is held with {self.hold.provider_id}"
+            )
+        if slots.get("service"):
+            facts.append(f"service: {slots['service']}")
+        if slots.get("area"):
+            facts.append(f"area: {slots['area']}")
+        if self.pending is not None:
+            facts.append(f"an approval for {self.pending.kind} is waiting on a yes/no")
+        return facts
+
     def _progress(self, key: str, detail: str | None = None) -> None:
         """Announce what the agent is doing, for a human watching.
 
@@ -317,6 +398,12 @@ class Orchestrator:
             intent=user_text,
             tool_result=self.last_tool_result,
             latest_user=user_text,
+            # The resolved slots ride along as established facts. They were only in the
+            # prompt as conversation history, so a session that had resolved a booking
+            # by tool call could still be asked "which booking?" — the fact was in the
+            # database and in state, but not in front of the model.
+            now=self._today(),
+            facts=self._established_facts(),
         )
         if self.tracer:
             self.tracer.emit("context", tokens=manifest.total,
@@ -342,8 +429,18 @@ class Orchestrator:
             )
         except ScriptExhausted:
             raise
-        except LLMError:
-            self._terminal("tool_failure", )
+        except LLMError as exc:
+            # Say why. This handler caught the exception and threw the message away,
+            # so every model-side failure — a timeout, a refused request, a malformed
+            # reply — reached the user as "A service call failed" with nothing to act
+            # on, and left no trace at all. The trace is the evidence base; an
+            # unexplained failure in it is a failure nobody can diagnose.
+            if self.tracer:
+                self.tracer.emit("llm_error", detail=str(exc),
+                                 kind=type(exc).__name__,
+                                 state=self.session.state.value)
+            self.session.slots["reason"] = str(exc) or "the model call failed"
+            self._terminal("tool_failure")
             return self._result(None, None)
         if self.tracer:
             self.tracer.emit("action", tool=action.tool, args=action.args,
@@ -447,8 +544,14 @@ class Orchestrator:
         # progress. This is what the tool budget exists to bound, but the budget is
         # only checked at turn entry, so an intra-turn loop could never trip it and
         # surfaced as a `tool_failure` that never happened.
+        #
+        # "Repeated" means *consecutively* repeated. A call identical to the last one
+        # is a stuck model; a call identical to one three steps ago, with new work in
+        # between, is re-planning. The global form of this check killed a legitimate
+        # "search → reconsider → look at that provider again" and reported it as a
+        # loop, which is the one outcome where the agent gives up on a solvable task.
         fingerprint = json.dumps([name, action.args], sort_keys=True, default=str)
-        if fingerprint in self._attempted:
+        if fingerprint == self._last_fingerprint:
             if self.tracer:
                 self.tracer.emit("loop_detected", tool=name,
                                  state=self.session.state.value)
@@ -457,6 +560,7 @@ class Orchestrator:
             self._terminal("repeated_tool_call")
             self.session.slots["reason"] = f"repeated {name} with no change"
             return self._result(name, None)
+        self._last_fingerprint = fingerprint
         self._attempted.add(fingerprint)
         result = self.gateway.call(
             self.session.state, name, action.args,
@@ -684,9 +788,16 @@ class Orchestrator:
             # is the thing the user is buying; a reschedule holds a *target* slot and
             # proposes the move afterwards, so it must not fall into the book branch.
             if self.session.slots.get("manage_kind"):
-                # a manage request: this hold is the *target* slot of a move, so the
-                # approval to raise is the reschedule, not a booking
-                return self._result(name, action_message_for(value))
+                # A manage request: this hold is the *target* slot of a move, so the
+                # approval to raise is the reschedule, not a booking. Raised here rather
+                # than left to the model: returning a bare message kept the session in
+                # SELECTING with nothing pending, so the loop called the model again and
+                # it re-held the same slot until the repeat guard killed the turn. The
+                # runtime already knows the booking and the held slot, so it can state
+                # the thing being approved without asking the model to say it again.
+                self._propose(Action(self.session.slots["manage_kind"], {},
+                                     action_message_for(value)))
+                return self._result(name, self.pending_text)
             self._propose(Action("book", {}, action_message_for(value)))
             return self._result(name, self.pending_text)
 

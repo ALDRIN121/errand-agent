@@ -669,8 +669,16 @@ class Handler(BaseHTTPRequestHandler):
             return {"text": "Use Ctrl-C in the server terminal to stop."}, 200
 
         if line == "/help":
-            return {"text": "commands: /memory  /forget <key>  /state  /trace  "
+            return {"text": "commands: /new  /memory  /forget <key>  /state  /trace  "
                             "simulate cancel <booking_id>"}, 200
+
+        if line in ("/new", "/reset"):
+            # Advertised in the placeholder text since the UI was written and never
+            # implemented: a finished session could only be revived by restarting the
+            # process.
+            session = orch.reset()
+            return {"text": f"new conversation started (session {session.id}). "
+                            f"Memory and existing bookings are kept."}, 200
 
         if line == "/state":
             return {"text": (f"state:  {orch.session.state.value}\n"

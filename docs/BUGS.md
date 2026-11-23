@@ -386,3 +386,69 @@ injection reproduces the original `TypeError` exactly.
 **Lesson.** A mock that accepts the arguments *the fixture* passes proves the signature
 is satisfiable, not that the contract a real caller is given is usable. The system prompt
 and the tool signature are two halves of one contract, and nothing compared them.
+
+
+---
+
+## Bug 14 — a fresh conversation arrived carrying the old one, and the agent re-asked questions it had already answered
+
+Reported from the running UI: "on reload new chat but had old context", and a
+"Move my AC servicing to Saturday" that asked which booking and which Saturday.
+
+**Fault 1 — `/new` did not exist.** The page's placeholder text said "session ended
+— /new to start another" and the command handler had no such branch. A finished
+session could only be revived by killing the process, so a reload reconnected to the
+same live orchestrator and the same slots: a "new" chat that still held the old
+conversation. `Orchestrator.reset()` now clears state, slots, pending approval, hold,
+candidates, history and the repeat guard, while keeping stored memory and bookings —
+those belong to the user, not the conversation. Wired into both the UI and the CLI.
+
+**Fault 2 — the model was never told what day it was.** Asked to move a booking to
+"Saturday", it replied "which Saturday and roughly what time? (I'm also not certain
+of today's date)". Nothing in the assembled prompt came from the clock, so the model
+could not resolve a relative day and had to ask. It now receives `Today is Monday,
+23 November 2026.` — the only date-shaped line in the prompt, taken from the clock so
+an eval run and a live run see the same instant.
+
+**Fault 3 — resolved facts never reached the model.** After `list_bookings` resolved
+`bk_1003`, the booking sat in `session.slots['manage']` and the model still asked
+"which booking should I move?". The state machine knew; the prompt did not. An
+`Established so far:` block now carries the managed booking, the held slot, the
+service, the area and any pending approval, derived from the session every turn
+rather than stored a second time.
+
+**Fault 4 — no Saturday existed in the data.** With a date finally in hand the model
+correctly searched 28 Nov and found nothing: the mock built slots for `range(3)` days
+while its own docstring promised "the next 7 days". Fixed to a full week. Then the
+projection still hid it — `get_provider` rendered the first six free slots, which
+were all Monday morning — so the model told the user "no Saturday" with Saturday
+slots in the record. The summary is now grouped one line per day, and
+`search_providers` lists the days a provider can serve rather than only its next slot.
+
+**Fault 5 — re-holding a slot was reported as a loop.** `hold_slot` in a manage flow
+returned a bare message instead of raising the reschedule approval, leaving the
+session in SELECTING with nothing pending. The loop called the model again, it
+re-held the same slot, and the repeat guard ended the turn as `repeated_tool_call`.
+The approval is now raised by the runtime at hold time. Separately, the repeat guard
+compared against *every* call in the session rather than the previous one, so a
+legitimate "search → reconsider → look at that provider again" was killed as a loop;
+it now fires only on a consecutive repeat.
+
+**Fault 6 — a naive timestamp killed the approval.** "yes, 3pm" returned
+`ValueError: PendingAction requires timezone-aware slots`. The model wrote
+`2026-11-28T15:00:00`, as any model would; the naive datetime travelled into the
+approval store and was rejected. `_coerce` now reads an offset-less timestamp as local
+time and leaves an explicit offset alone.
+
+**Fault 7 — the failure said nothing and recorded nothing.** `except LLMError` threw
+the message away and emitted no trace event, so a model-side failure reached the user
+as "A service call failed" with no cause on screen or in the trace. It now records
+`llm_error` with the detail and puts it in the reason.
+
+**Regression test.** `tests/test_context_facts.py` (11) and
+`tests/test_timezone_coercion.py` (7).
+
+**Lesson.** Three of these were the same shape: the runtime knew something and the
+model did not. State is not context — a fact only exists for the model once it is in
+the prompt — and a fixture is not a world: a three-day window made the product's own
+example request unanswerable.

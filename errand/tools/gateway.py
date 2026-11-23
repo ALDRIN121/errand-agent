@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from errand.clock import IST
 from errand.policy import PolicyViolation, State, assert_tool_allowed
 from errand.tools.mock import MockToolServer
 from errand.trace import Tracer
@@ -69,11 +70,19 @@ class CallResult:
 
 
 def _parse_dt(value):
-    """Accept an ISO string, a datetime, or a dict carrying `start`/`end`."""
+    """Accept an ISO string, a datetime, or a dict carrying `start`/`end`.
+
+    A model writing a timestamp writes it the way a person does: `2026-11-28T15:00:00`,
+    with no offset. That is naive, and a naive slot cannot be frozen into an approval —
+    `PendingAction` rejects it, which surfaced to the user as a raw ValueError from
+    deep in the approval store. The business runs in one timezone, so a timestamp
+    without one is read as local time rather than refused.
+    """
     if isinstance(value, datetime):
-        return value
+        return value if value.tzinfo is not None else value.replace(tzinfo=IST)
     if isinstance(value, str):
-        return datetime.fromisoformat(value)
+        parsed = datetime.fromisoformat(value)
+        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=IST)
     return None
 
 
